@@ -48,6 +48,17 @@ One file per plugin under `plugins/` — `id`, `name`, `kind` (Data · Monitors 
 shelves. Plugins approved at runtime live under the data dir (`approved/`) and merge with the committed
 ones; `npm run export` prints them so a commit makes them permanent.
 
+## Deploy on Vercel
+
+Live at https://gravit-field.vercel.app, with the MCP endpoint at https://gravit-field.vercel.app/mcp.
+
+`api/index.js` is the one function. `vercel.json` sends every path that is not a file of the project to it, and
+the browser loads `css/` and `js/` as static files. Redeploy with `vercel deploy --prod`.
+
+On Vercel the data dir is the instance's `/tmp`. Submissions, approvals and the call log last only as long as an
+instance, and each instance has its own. The committed plugins, the shelves and `plugin_call` do not depend on it.
+Admin stays closed until `GF_ADMIN_TOKEN` is set in the project's environment variables.
+
 ## Environment
 
 | variable | default | what |
