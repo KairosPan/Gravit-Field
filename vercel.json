@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "npm ci",
+  "functions": {
+    "api/index.js": { "includeFiles": "{plugins,css,js}/**" }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+}

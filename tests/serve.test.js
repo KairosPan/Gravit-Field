@@ -1,6 +1,7 @@
 // tests/serve.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { request } from 'node:http';
 import { createApp, contentType } from '../serve.js';
 import { testApp } from './helpers/http.js';
 import { startSilent } from './helpers/fake-upstream.js';
@@ -154,6 +155,33 @@ test('each source holds a share of the in-flight places, so one client cannot st
     release();
     await first;
     assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k1' }), { ok: false, error: 'x' });
+  } finally {
+    await close();
+  }
+});
+
+test('hosted behind a platform: no request is this machine\'s own, any Host is served, and the app exposes its handler', async () => {
+  const { app, port, close } = await testApp({ hosted: true, trustProxy: true });
+  try {
+    assert.equal(typeof app.handle, 'function');
+    const get = (path, headers = {}) => new Promise((resolve, reject) => {
+      request({ host: '127.0.0.1', port, path, headers }, res => { res.resume(); resolve(res.statusCode); }).on('error', reject).end();
+    });
+    assert.equal(await get('/healthz', { host: 'gravit-field.vercel.app', 'x-forwarded-for': '203.0.113.9' }), 200, 'the platform\'s own domain');
+    assert.equal(await get('/admin', { host: 'gravit-field.vercel.app' }), 403, 'the platform\'s loopback socket is not the operator');
+  } finally {
+    await close();
+  }
+});
+
+test('the registry probes every plugin at once, so a cold start waits for the slowest, not the sum', async () => {
+  const probe = async () => { await new Promise(r => setTimeout(r, 200)); return { ok: false, error: 'x' }; };
+  const { app, close } = await testApp({ probe });
+  try {
+    const t0 = Date.now();
+    await app.services.registry.probeAll();
+    assert.ok(Date.now() - t0 < 450, `three probes of 200 ms took ${Date.now() - t0} ms`);
+    assert.equal(app.services.registry.byId('gamma').error, 'x');
   } finally {
     await close();
   }

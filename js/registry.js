@@ -29,8 +29,9 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
 
   const setStatus = (id, status) => derived.set(id, { ...(derived.get(id) ?? {}), status });
 
+  // every plugin at once: a cold start waits for the slowest probe, not the sum of them
   async function probeAll() {
-    for (const p of entries) setProbe(p.id, await probe(p.url, { allowLoopback }));
+    await Promise.all(entries.map(async p => setProbe(p.id, await probe(p.url, { allowLoopback }))));
   }
 
   return {

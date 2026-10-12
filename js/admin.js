@@ -42,7 +42,7 @@ export function createSessions({ now = Date.now, max = MAX_SESSIONS } = {}) {
 // cookie; else Authorization: Bearer <token>, for scripts; else GET /admin?token=, which opens a session and is answered by
 // a redirect to a clean /admin, so the token-bearing URL is left at once and never sent on as a Referer
 export function adminAllowed({ req, url, path, services }, sessions) {
-  if (isLocalRequest(req)) return { ok: true };
+  if (!services.options.hosted && isLocalRequest(req)) return { ok: true }; // hosted, nothing is this machine's own
   const token = services.options.adminToken;
   if (!token) return { ok: false };
   if (sessions.valid(parseCookies(req.headers.cookie)[COOKIE])) return { ok: true };

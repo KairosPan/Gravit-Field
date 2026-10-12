@@ -49,9 +49,11 @@ export function defaults(env = process.env) {
     adminToken: env.GF_ADMIN_TOKEN || null,
     upstreamTimeoutMs: Number(env.GF_UPSTREAM_TIMEOUT_MS || 20_000),
     trustProxy: env.GF_TRUST_PROXY === '1' || env.GF_TRUST_PROXY === 'true',
-    probeOnBoot: true,
+    probeOnBoot: env.GF_PROBE !== '0',
     probeEveryMs: 15 * 60_000,
     allowLoopback: false,
+    // behind a platform such as Vercel: no request is ever this machine's own, and any Host is served (api/index.js)
+    hosted: false,
   };
 }
 
@@ -126,7 +128,8 @@ export function createApp(options = {}) {
     timer.unref();
   }
 
-  const server = createServer(async (req, res) => {
+  // the request handler: createServer runs it here, and a platform's function calls it directly (api/index.js)
+  const handle = async (req, res) => {
     let url;
     try { url = new URL(req.url, 'http://localhost'); decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end(); }
     if (!hostAllowed(req, o)) return sendJson(res, 403, { error: 'unknown host' });
@@ -149,8 +152,10 @@ export function createApp(options = {}) {
       return res.end();
     }
     notFound(res);
-  });
+  };
 
+  const server = createServer(handle);
+  server.handle = handle;
   // a socket with nothing moving for longer than the slowest call could take is closed
   server.timeout = 3 * o.upstreamTimeoutMs + 5000;
   server.services = services;

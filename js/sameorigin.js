@@ -6,7 +6,8 @@ import { isLoopback } from './ratelimit.js';
 const LOCAL = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const publicHost = publicOrigin => { try { return publicOrigin ? new URL(publicOrigin).host.toLowerCase() : null; } catch { return null; } };
 
-export function hostAllowed(req, { publicOrigin = null } = {}) {
+export function hostAllowed(req, { publicOrigin = null, hosted = false } = {}) {
+  if (hosted) return true; // behind a platform the loopback socket is the platform's, and no visitor's machine is in reach
   if (!isLoopback(req.socket?.remoteAddress ?? '')) return true; // rebinding only reaches through the visitor's own machine
   const host = String(req.headers.host ?? '').toLowerCase();
   if (LOCAL.has(host.replace(/:\d+$/, ''))) return true;
