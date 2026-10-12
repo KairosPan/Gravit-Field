@@ -12,6 +12,10 @@ import { createGateway } from './js/gateway.js';
 import { createLimiter, createGate, clientIp, bucketKey } from './js/ratelimit.js';
 import { probe as realProbe } from './js/probe.js';
 import { makeCatalogue } from './js/data/catalogue.js';
+import { sendJson, sendHtml, notFound } from './js/http.js';
+import { createPages } from './js/pages.js';
+
+export { sendJson, sendHtml, notFound };
 
 export const HERE = fileURLToPath(new URL('.', import.meta.url));
 export const TYPES = {
@@ -43,21 +47,6 @@ export function defaults(env = process.env) {
     probeEveryMs: 15 * 60_000,
     allowLoopback: false,
   };
-}
-
-export function sendJson(res, status, body, headers = {}) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
-  res.end(JSON.stringify(body));
-}
-
-export function sendHtml(res, status, html, headers = {}) {
-  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...headers });
-  res.end(html);
-}
-
-export function notFound(res) {
-  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end('not found');
 }
 
 // css/ and js/ are served as they are, with no cache headers (the face/client/* lesson); a path that
@@ -121,8 +110,8 @@ export function createApp(options = {}) {
     }),
   };
 
-  // route handlers answer true when they took the request; Tasks 12–16 push theirs here
-  const routes = [];
+  // route handlers answer true when they took the request; tried in this order (Tasks 13–16 add theirs)
+  const routes = [createPages(services)];
 
   const ready = o.probeOnBoot ? registry.probeAll().catch(e => log(`probe: ${e.message}`)) : Promise.resolve();
   let timer = null;
