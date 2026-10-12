@@ -53,7 +53,13 @@ export async function connectUpstream(url, { timeoutMs = 12_000, allowLoopback =
   throw lastError;
 }
 
-const firstLine = s => String(s ?? '').split('\n')[0].trim().slice(0, 200);
+// a tool's description as the drawer shows it: the first line, then its first sentence, at most 140 characters
+export function oneLine(s) {
+  const line = String(s ?? '').split('\n')[0].trim();
+  const sentence = line.match(/^(.+?[.!?])\s+(?=[A-Z])/);
+  const out = sentence ? sentence[1] : line;
+  return out.length > 140 ? out.slice(0, 139).trimEnd() + '…' : out;
+}
 const flatten = e => (!e ? '' : [e.code, e.message, e.cause ? flatten(e.cause) : ''].filter(Boolean).join(' '));
 
 // what a submitter may read about a failure: its kind, never addresses or text from inside the network it was tried from
@@ -86,7 +92,7 @@ export async function probe(url, { timeoutMs = 12_000, allowLoopback = false, re
     return {
       ok: true,
       server: { name: info.name ?? '', version: info.version ?? '' },
-      toolList: tools.map(t => ({ name: t.name, description: firstLine(t.description), inputSchema: t.inputSchema ?? { type: 'object' } })),
+      toolList: tools.map(t => ({ name: t.name, description: oneLine(t.description), inputSchema: t.inputSchema ?? { type: 'object' } })),
       latencyMs: Math.round(now() - t0),
       transport: c.transport,
     };

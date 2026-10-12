@@ -1,7 +1,7 @@
 // tests/probe.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedUrl, probe, withTimeout, describeError, connectUpstream } from '../js/probe.js';
+import { allowedUrl, probe, withTimeout, describeError, connectUpstream, oneLine } from '../js/probe.js';
 import { startUpstream, startSilent } from './helpers/fake-upstream.js';
 
 test('allowedUrl: https public hosts pass; loopback only with allowLoopback; private, link-local, credentials and plain http never', () => {
@@ -86,4 +86,14 @@ test('connectUpstream connects through the pinned lookup: a made-up name pinned 
   } finally {
     await up.close();
   }
+});
+
+test('a tool\'s description is cut to one short line: the first line, then its first sentence, at most 140 characters', () => {
+  assert.equal(oneLine('Echoes the text back\nSecond line is not shown'), 'Echoes the text back');
+  assert.equal(oneLine('Find companies and retrieve entity info. Entry point for most EDGAR workflows — resolves tickers.'), 'Find companies and retrieve entity info.');
+  assert.equal(oneLine('Version 2.5 of the U.S. index. Second sentence.'), 'Version 2.5 of the U.S. index.', 'a dot inside a number or an abbreviation does not end the sentence');
+  const long = 'word '.repeat(60).trim();
+  assert.equal(oneLine(long).length, 140);
+  assert.match(oneLine(long), /…$/);
+  assert.equal(oneLine(undefined), '');
 });
