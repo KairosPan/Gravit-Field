@@ -14,6 +14,7 @@ import { probe as realProbe } from './js/probe.js';
 import { makeCatalogue } from './js/data/catalogue.js';
 import { sendJson, sendHtml, notFound } from './js/http.js';
 import { createPages } from './js/pages.js';
+import { createApi } from './js/api.js';
 
 export { sendJson, sendHtml, notFound };
 
@@ -112,7 +113,7 @@ export function createApp(options = {}) {
   };
 
   // route handlers answer true when they took the request; tried in this order (Tasks 13–16 add theirs)
-  const routes = [createPages(services)];
+  const routes = [createApi(services), createPages(services)];
 
   const ready = o.probeOnBoot ? registry.probeAll().catch(e => log(`probe: ${e.message}`)) : Promise.resolve();
   let timer = null;

@@ -14,17 +14,20 @@ export function notFound(res) {
   res.end('not found');
 }
 
-// the whole body as a string, or a rejection carrying status 413 once it passes the limit
+// the whole body as a string, or a rejection carrying status 413 once it passes the limit. Past the limit the rest is
+// read and discarded, never kept, so the 413 reaches a client that is still sending instead of a reset socket
 export function readBody(req, { limit = 64 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     req.on('data', c => {
+      if (over) return;
       size += c.length;
-      if (size > limit) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
+      if (size > limit) { over = true; chunks.length = 0; return; }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => (over ? reject(Object.assign(new Error('body too large'), { status: 413 })) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
 }
