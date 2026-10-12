@@ -55,7 +55,7 @@ ones; `npm run export` prints them so a commit makes them permanent.
 | `PORT`, `HOST` | `4840`, `127.0.0.1` | where to listen |
 | `GF_DATA_DIR` | `./data` | submissions, approvals, rejections, the ledger |
 | `GF_PUBLIC_ORIGIN` | the request's host | the origin shown in Create and Use it; required behind a proxy on the same machine, since a loopback request must name this machine or this origin |
-| `GF_ADMIN_TOKEN` | unset | `/admin` from anywhere but this machine needs `?token=` once; unset means local only. A request a proxy forwarded is never local |
+| `GF_ADMIN_TOKEN` | unset | `/admin` from anywhere but this machine: open `/admin?token=…` once, which signs in and redirects to a clean URL, or send `Authorization: Bearer …` from a script; unset means local only. A request a proxy forwarded is never local |
 | `GF_TRUST_PROXY` | unset | `1` behind Railway or any proxy: the client address is the last `X-Forwarded-For` hop, the one the proxy appended |
 | `GF_UPSTREAM_TIMEOUT_MS` | `20000` | the gateway's wait on an upstream |
 

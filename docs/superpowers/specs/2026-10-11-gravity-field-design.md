@@ -489,8 +489,12 @@ ruling with its cost if wrong.
    16-hex digest of the client under a salt made at boot and kept in memory; it is stored on the record as
    `from` and never shown. The door holds a submission's id while its probe runs, creates the pending file only
    if absent, and checks again after the probe whether the id was approved meanwhile.
-6. **The admin gate (replaces §8.3's first sentence).** Local means a loopback socket that no proxy forwarded:
-   no `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header. Anything else needs the token cookie.
+6. **The admin gate (replaces §8.3).** Local means a loopback socket that no proxy forwarded: no
+   `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header. Anything else needs a session or the token. `GET
+   /admin?token=` opens a session and answers 303 to a clean `/admin`, so the token-bearing URL is left at once;
+   the cookie holds a random 32-byte session id kept in memory for 30 days, never the token, with `Secure` behind
+   https; a script may send `Authorization: Bearer <token>` instead. The token is compared in constant time, and
+   every admin answer carries `Referrer-Policy: no-referrer`. A restart signs everyone out.
 7. **A page in the visitor's browser cannot drive the server (new).** On a loopback socket, the `Host` must name
    this machine or `GF_PUBLIC_ORIGIN`'s host. A POST, PUT, PATCH or DELETE whose `Origin` is another site's or
    `null`, or that a browser marks `Sec-Fetch-Site: cross-site`, is refused. A request with no `Origin` is a
@@ -505,6 +509,6 @@ ruling with its cost if wrong.
     `js/submit.js`, `js/door.js`. Unchanged: two dependencies, no build step.
 
 Still open from the review, deferred by the operator's leave: the connect budget can reach twice the timeout
-(HTTP, then SSE), the admin cookie lacks `Secure` behind https, the token comparison is not constant-time, two
+(HTTP, then SSE), two
 first calls to one plugin can both connect, `/api/ledger` has no per-tool last-hour count, and the gateway does
 not try first the transport the probe found.

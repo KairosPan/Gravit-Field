@@ -34,11 +34,11 @@ test('loopback sees the queue: empty, then a submission as a card with its table
   }
 });
 
-test('the gate: not loopback is 403 without a token; a token visit sets the cookie; the cookie then admits; a wrong token does not', async () => {
+test('the gate: off this machine 403 without a token; the token link signs in and redirects to a clean /admin; the cookie is a session, never the token', async () => {
   const { base, close } = await testApp({ trustProxy: true });
   try {
     assert.equal((await fetch(`${base}/admin`, { headers: far })).status, 403);
-    assert.equal((await fetch(`${base}/admin?token=abc`, { headers: far })).status, 403, 'no token is configured, so none can match');
+    assert.equal((await fetch(`${base}/admin?token=abc`, { headers: far, redirect: 'manual' })).status, 403, 'no token is configured, so none can match');
   } finally {
     await close();
   }
@@ -46,17 +46,38 @@ test('the gate: not loopback is 403 without a token; a token visit sets the cook
   try {
     const { base } = withToken;
     assert.equal((await fetch(`${base}/admin`, { headers: far })).status, 403);
-    assert.equal((await fetch(`${base}/admin?token=wrong`, { headers: far })).status, 403);
-    const ok = await fetch(`${base}/admin?token=s3cret`, { headers: far });
-    assert.equal(ok.status, 200);
-    const cookie = ok.headers.get('set-cookie');
-    assert.match(cookie, /^gf_admin=s3cret; Path=\/; Max-Age=2592000; HttpOnly; SameSite=Lax$/);
-    assert.equal((await fetch(`${base}/admin`, { headers: { ...far, cookie: 'gf_admin=s3cret' } })).status, 200);
+    assert.equal((await fetch(`${base}/admin?token=wrong`, { headers: far, redirect: 'manual' })).status, 403);
+    assert.equal((await fetch(`${base}/admin?token=s3cre`, { headers: far, redirect: 'manual' })).status, 403, 'a token of another length fails the same way');
+    const signIn = await fetch(`${base}/admin?token=s3cret`, { headers: far, redirect: 'manual' });
+    assert.equal(signIn.status, 303, 'the token-bearing URL is left at once');
+    assert.equal(signIn.headers.get('location'), '/admin');
+    assert.equal(signIn.headers.get('referrer-policy'), 'no-referrer');
+    const cookie = signIn.headers.get('set-cookie');
+    const m = cookie.match(/^gf_admin=([A-Za-z0-9_-]{43}); Path=\/; Max-Age=2592000; HttpOnly; SameSite=Lax$/);
+    assert.ok(m, cookie);
+    assert.notEqual(m[1], 's3cret');
+    assert.equal((await fetch(`${base}/admin`, { headers: { ...far, cookie: `gf_admin=${m[1]}` } })).status, 200);
+    assert.equal((await fetch(`${base}/admin`, { headers: { ...far, cookie: 'gf_admin=s3cret' } })).status, 403, 'the raw token is not a session');
     assert.equal((await fetch(`${base}/admin`, { headers: { ...far, cookie: 'gf_admin=nope' } })).status, 403);
     assert.equal((await fetch(`${base}/api/admin/zeta/approve`, { method: 'POST', headers: far })).status, 403);
-    assert.equal((await fetch(`${base}/admin`)).status, 200, 'loopback needs no token');
+    const bearer = await fetch(`${base}/api/admin/zeta/approve`, { method: 'POST', headers: { ...far, authorization: 'Bearer s3cret' } });
+    assert.deepEqual(await bearer.json(), { ok: false, error: 'no such submission' }, 'a script signs each request with the header');
+    assert.equal((await fetch(`${base}/api/admin/zeta/approve`, { method: 'POST', headers: { ...far, authorization: 'Bearer wrong' } })).status, 403);
+    assert.equal((await fetch(`${base}/admin`)).status, 200, 'this machine needs no token');
+    assert.equal((await fetch(`${base}/admin`)).headers.get('referrer-policy'), 'no-referrer');
   } finally {
     await withToken.close();
+  }
+});
+
+test('behind https the session cookie is Secure', async () => {
+  const { base, close } = await testApp({ trustProxy: true, adminToken: 's3cret', publicOrigin: 'https://gravity.example' });
+  try {
+    const signIn = await fetch(`${base}/admin?token=s3cret`, { headers: far, redirect: 'manual' });
+    assert.equal(signIn.status, 303);
+    assert.match(signIn.headers.get('set-cookie'), /; HttpOnly; SameSite=Lax; Secure$/);
+  } finally {
+    await close();
   }
 });
 
