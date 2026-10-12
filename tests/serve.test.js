@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { createApp, contentType } from '../serve.js';
-import { testApp } from './helpers/http.js';
+import { testApp, rootWith, manifest } from './helpers/http.js';
 import { startSilent } from './helpers/fake-upstream.js';
 
 function listen(app) {
@@ -183,6 +183,38 @@ test('the registry probes every plugin at once, so a cold start waits for the sl
     assert.ok(Date.now() - t0 < 450, `three probes of 200 ms took ${Date.now() - t0} ms`);
     assert.equal(app.services.registry.byId('gamma').error, 'x');
   } finally {
+    await close();
+  }
+});
+
+test('a plugin that probed down is probed again on the next request after a minute, so a serverless instance heals without its timer', async () => {
+  let t = 1_000_000;
+  const realNow = Date.now;
+  Date.now = () => t;
+  const answers = { alpha: [false, true], beta: [true], gamma: [true] };
+  const asked = [];
+  const probe = async url => {
+    const id = url.includes('alpha') ? 'alpha' : url.includes('beta') ? 'beta' : 'gamma';
+    asked.push(id);
+    const ok = answers[id].length > 1 ? answers[id].shift() : answers[id][0];
+    return ok ? { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 1, transport: 'http' } : { ok: false, error: 'connection reset', detail: 'x' };
+  };
+  const root = rootWith([manifest('alpha', 'https://alpha.example/mcp'), manifest('beta', 'https://beta.example/mcp'), manifest('gamma', 'https://gamma.example/mcp')], { featured: ['alpha'] });
+  const { app, base, close } = await testApp({ root, probe, probeOnBoot: true, probeEveryMs: 0 });
+  try {
+    await app.ready;
+    assert.equal(app.services.registry.byId('alpha').status, 'down');
+    await fetch(`${base}/healthz`);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(app.services.registry.byId('alpha').status, 'down', 'within the minute of its boot probe nothing is retried');
+    t += 61_000;
+    await fetch(`${base}/healthz`);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(app.services.registry.byId('alpha').status, 'up');
+    assert.deepEqual(asked.filter(id => id === 'alpha').length, 2);
+    assert.deepEqual(asked.filter(id => id !== 'alpha').length, 2, 'plugins that are up are not probed again');
+  } finally {
+    Date.now = realNow;
     await close();
   }
 });

@@ -44,7 +44,9 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
     const p = entries.find(x => x.id === id);
     if (!p) return Promise.resolve(null);
     if (running.has(id)) return running.get(id);
-    if (now() - (attempted.get(id) ?? -Infinity) < ON_DEMAND_EVERY) return Promise.resolve(null);
+    // the minute counts from the last probe of any kind, the boot probe included
+    const last = Math.max(attempted.get(id) ?? -Infinity, derived.get(id)?.probedAt ?? -Infinity);
+    if (now() - last < ON_DEMAND_EVERY) return Promise.resolve(null);
     attempted.set(id, now());
     const job = (async () => {
       try {

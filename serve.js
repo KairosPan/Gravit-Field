@@ -138,6 +138,8 @@ export function createApp(options = {}) {
     const gate = limiters.requests.take(ip);
     if (!gate.ok) return sendJson(res, 429, { error: 'rate limited' }, { 'retry-after': String(gate.retryAfterSec) });
     const path = url.pathname;
+    // a plugin that probed down is probed again on a request after its minute: a serverless instance has no timer to rely on
+    if (o.probeOnBoot) for (const p of registry.list()) if (p.status === 'down') registry.probeOnDemand(p.id).catch(() => {});
     if (req.method === 'GET' && /^\/(css|js)\//.test(path)) return serveStatic(o.root, path, res);
     if (path === '/healthz') {
       const list = registry.list();
