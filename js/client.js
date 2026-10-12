@@ -91,7 +91,18 @@ export function boot(win, { copiedMs = COPIED_MS, toastMs = TOAST_MS } = {}) {
     const el = ev.target.closest('[data-action]');
     if (el && ACTIONS[el.dataset.action]) ACTIONS[el.dataset.action](el);
   });
-  root.addEventListener('input', ev => { if (ev.target?.dataset?.action === 'query') store.dispatch('setQuery', ev.target.value); });
+  // an input method composes in place: a render mid-composition would replace the input under it, so the search waits for compositionend
+  root.addEventListener('input', ev => { if (!ev.isComposing && ev.target?.dataset?.action === 'query') store.dispatch('setQuery', ev.target.value); });
+  root.addEventListener('compositionend', ev => { if (ev.target?.dataset?.action === 'query') store.dispatch('setQuery', ev.target.value); });
+  // a card is a div with role=button: Enter and Space open it, as they would a button; real buttons, links and fields act on their own
+  const NATIVE = new Set(['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT']);
+  root.addEventListener('keydown', ev => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const el = ev.target;
+    if (!el?.dataset?.action || NATIVE.has(el.tagName) || !ACTIONS[el.dataset.action]) return;
+    ev.preventDefault();
+    ACTIONS[el.dataset.action](el);
+  });
   root.addEventListener('change', ev => { if (ev.target?.dataset?.action === 'setClient') store.dispatch('setClient', ev.target.value); });
   doc.addEventListener('keydown', ev => {
     if (ev.key !== 'Escape') return;

@@ -120,3 +120,34 @@ test('Create opens over the page and Escape closes it first; opening it from a d
   assert.doesNotMatch(f.html(), /modal-scrim/);
   store.timers.clear();
 });
+
+test('Enter or Space on a focused card opens it, as a button would; keys on a real button or an input are left to the browser', () => {
+  const f = fakeWindow({ catalogue });
+  const store = boot(f.win);
+  f.fire('root', 'keydown', { key: 'Enter', target: { tagName: 'DIV', dataset: { action: 'openPlugin', id: 'alpha' } } });
+  assert.equal(store.get().drawer, 'alpha');
+  f.fire('doc', 'keydown', { key: 'Escape' });
+  f.fire('root', 'keydown', { key: ' ', target: { tagName: 'DIV', dataset: { action: 'openPlugin', id: 'beta' } } });
+  assert.equal(store.get().drawer, 'beta');
+  f.fire('doc', 'keydown', { key: 'Escape' });
+  f.fire('root', 'keydown', { key: 'Enter', target: { tagName: 'BUTTON', dataset: { action: 'install', id: 'alpha' } } });
+  f.fire('root', 'keydown', { key: 'Enter', target: { tagName: 'INPUT', dataset: { action: 'query' } } });
+  assert.deepEqual(store.get().installed, [], 'a native button fires its own click');
+  store.timers.clear();
+});
+
+test('typing through an input method does not re-render mid-composition; the composed text searches when it ends', () => {
+  const f = fakeWindow({ catalogue });
+  const dq = f.withId('dq', { tagName: 'INPUT', dataset: { action: 'query' } });
+  const store = boot(f.win);
+  const before = f.writes;
+  dq.value = '比';
+  f.fire('root', 'input', { target: dq, isComposing: true });
+  assert.equal(f.writes, before, 'a render now would replace the input under the input method');
+  assert.equal(store.get().query, '');
+  dq.value = 'beta';
+  f.fire('root', 'compositionend', { target: dq });
+  assert.equal(store.get().query, 'beta');
+  assert.match(f.html(), /class="grid-title">1 result</);
+  store.timers.clear();
+});
