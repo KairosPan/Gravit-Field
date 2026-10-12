@@ -4,7 +4,6 @@ import { BlockList, isIP } from 'node:net';
 import { lookup as dnsLookup } from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
-import { Readable, Transform } from 'node:stream';
 
 const loop = new BlockList();
 loop.addSubnet('127.0.0.0', 8, 'ipv4');
@@ -75,19 +74,33 @@ export function checkHost(hostname, { allowLoopback = false, resolve = dnsLookup
 
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
-// an answer passes through a counter; past maxBytes the stream errors with EBIG and the socket is closed, so nothing larger is ever buffered
-function capped(res, maxBytes) {
-  if (!maxBytes) return res;
+// the answer as a web stream built by hand: nothing is enqueued once it is closed, errored or cancelled (Node's
+// toWeb adapter flushes bytes already buffered into a body the reader cancelled, and throws where nothing catches it);
+// past maxBytes it errors with EBIG and the socket is closed, so nothing larger is ever buffered
+function webBody(res, maxBytes) {
+  let open = true;
   let seen = 0;
-  const counter = new Transform({
-    transform(chunk, _enc, done) {
-      seen += chunk.length;
-      if (seen > maxBytes) { res.destroy(); return done(Object.assign(new Error(`answer larger than ${maxBytes} bytes`), { code: 'EBIG' })); }
-      done(null, chunk);
+  const finish = fn => { if (open) { open = false; fn(); } };
+  return new ReadableStream({
+    start(controller) {
+      res.on('data', chunk => {
+        if (!open) return;
+        seen += chunk.length;
+        if (maxBytes && seen > maxBytes) {
+          finish(() => controller.error(Object.assign(new Error(`answer larger than ${maxBytes} bytes`), { code: 'EBIG' })));
+          res.destroy();
+          return;
+        }
+        controller.enqueue(new Uint8Array(chunk));
+        if (controller.desiredSize <= 0) res.pause();
+      });
+      res.on('end', () => finish(() => controller.close()));
+      res.on('error', e => finish(() => controller.error(e)));
+      res.on('close', () => finish(() => controller.error(Object.assign(new Error('the connection closed before the answer ended'), { code: 'ECONNRESET' }))));
     },
-  });
-  res.on('error', e => counter.destroy(e));
-  return res.pipe(counter);
+    pull() { res.resume(); },
+    cancel() { open = false; res.destroy(); },
+  }, { highWaterMark: 64 * 1024, size: chunk => chunk.byteLength });
 }
 
 // a fetch for the MCP client transports: node:http(s) through the guarded lookup; a redirect comes back as it is.
@@ -116,7 +129,7 @@ export function guardedFetch({ allowLoopback = false, resolve = dnsLookup, maxBy
         for (const [k, v] of Object.entries(res.headers)) for (const x of [].concat(v ?? [])) h.append(k, String(x));
         const empty = NULL_BODY.has(res.statusCode) || method === 'HEAD';
         if (empty) res.resume();
-        done(new Response(empty ? null : Readable.toWeb(capped(res, maxBytes)), { status: res.statusCode, statusText: res.statusMessage, headers: h }));
+        done(new Response(empty ? null : webBody(res, maxBytes), { status: res.statusCode, statusText: res.statusMessage, headers: h }));
       });
       req.on('error', failWith);
       req.end(body ?? undefined);

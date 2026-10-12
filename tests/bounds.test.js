@@ -97,3 +97,64 @@ test('a page embeds tool names, one-line descriptions and argument hints, never 
     await close();
   }
 });
+
+test('a reader that stops early while the server keeps sending never crashes the process', async () => {
+  const crashes = [];
+  const onCrash = e => crashes.push(e);
+  process.on('uncaughtException', onCrash);
+  const srv = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const tick = setInterval(() => res.write(`data: ${'x'.repeat(2000)}\n\n`), 2);
+    res.on('close', () => clearInterval(tick));
+  });
+  const port = await new Promise(r => srv.listen(0, '127.0.0.1', () => r(srv.address().port)));
+  try {
+    for (const maxBytes of [0, 10_000_000]) {
+      const ctl = new AbortController();
+      const r = await guardedFetch({ allowLoopback: true, maxBytes })(`http://127.0.0.1:${port}/`, { signal: ctl.signal });
+      const reader = r.body.getReader();
+      await reader.read();
+      await reader.cancel();
+      await new Promise(done => setTimeout(done, 60));
+      const again = await guardedFetch({ allowLoopback: true, maxBytes })(`http://127.0.0.1:${port}/`, { signal: ctl.signal });
+      const reader2 = again.body.getReader();
+      await reader2.read();
+      ctl.abort();
+      await new Promise(done => setTimeout(done, 60));
+    }
+    assert.deepEqual(crashes.map(e => e.message), []);
+  } finally {
+    process.off('uncaughtException', onCrash);
+    srv.closeAllConnections();
+    srv.close();
+  }
+});
+
+test('a body cancelled before it is read, while its bytes are already in, never crashes the process', async () => {
+  const crashes = [];
+  const onCrash = e => crashes.push(e);
+  process.on('uncaughtException', onCrash);
+  const srv = createServer((req, res) => {
+    if (req.method === 'GET') { res.writeHead(404, { 'content-type': 'text/plain; charset=UTF-8' }); res.end('Not Found yet'); return; }
+    res.writeHead(202, { 'content-length': '0' });
+    res.end();
+  });
+  const port = await new Promise(r => srv.listen(0, '127.0.0.1', () => r(srv.address().port)));
+  try {
+    for (const maxBytes of [0, 2_000_000]) {
+      const get = await guardedFetch({ allowLoopback: true, maxBytes })(`http://127.0.0.1:${port}/mcp`, { method: 'GET' });
+      assert.equal(get.status, 404);
+      await get.body.cancel();
+      const accepted = await guardedFetch({ allowLoopback: true, maxBytes })(`http://127.0.0.1:${port}/mcp`, { method: 'POST', body: '{}' });
+      assert.equal(accepted.status, 202);
+      await accepted.body?.cancel();
+      await new Promise(done => setTimeout(done, 80));
+    }
+    assert.deepEqual(crashes.map(e => e.message), []);
+    const ok = await guardedFetch({ allowLoopback: true, maxBytes: 1000 })(`http://127.0.0.1:${port}/mcp`, { method: 'GET' });
+    assert.equal(await ok.text(), 'Not Found yet', 'a body read to its end still arrives whole');
+  } finally {
+    process.off('uncaughtException', onCrash);
+    srv.close();
+  }
+});

@@ -44,7 +44,8 @@ export async function startUpstream(opts = {}) {
 }
 
 // an upstream that keeps sessions, as the SDK's default server does; forget() drops them all, as an idle expiry or a restart would
-export async function startStatefulUpstream(opts = {}) {
+// json: false answers every POST as an SSE stream and keeps a GET stream open, as most hosted servers do
+export async function startStatefulUpstream({ json = true, ...opts } = {}) {
   const calls = [];
   const sessions = new Map();
   const http = createServer(async (req, res) => {
@@ -56,7 +57,7 @@ export async function startStatefulUpstream(opts = {}) {
       return res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Session not found' } }));
     }
     if (!transport) {
-      const t = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), enableJsonResponse: true, onsessioninitialized: id => sessions.set(id, t) });
+      const t = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), enableJsonResponse: json, onsessioninitialized: id => sessions.set(id, t) });
       await makeUpstream({ ...opts, calls }).connect(t);
       transport = t;
     }
