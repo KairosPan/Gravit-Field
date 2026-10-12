@@ -8,7 +8,7 @@ import { createRegistry } from './js/registry.js';
 import { createSubmissions, pendingEntry } from './js/submissions.js';
 import { createLedger } from './js/ledger.js';
 import { createGateway } from './js/gateway.js';
-import { createLimiter, clientIp } from './js/ratelimit.js';
+import { createLimiter, createGate, clientIp } from './js/ratelimit.js';
 import { probe as realProbe } from './js/probe.js';
 import { makeCatalogue } from './js/data/catalogue.js';
 
@@ -17,12 +17,11 @@ export const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2',
 };
-// requests a minute, plugin calls a minute, submissions an hour, per client address (spec §4); calls and submissions also
-// have one bucket shared by everyone, bounding the outbound work any number of addresses can cause
-export const LIMITS = { requests: [600, 60_000], calls: [60, 60_000], submissions: [10, 3_600_000], callsAll: [600, 60_000], submissionsAll: [60, 3_600_000] };
-
-// a per-address bucket and the shared one behind it: take(key) admits only when both do
-const both = (one, all) => ({ take: key => { const a = one.take(key); return a.ok ? all.take('all') : a; }, sweep: () => { one.sweep(); all.sweep(); }, size: () => one.size() });
+// requests a minute, plugin calls a minute, submissions an hour, per client (spec §4; an IPv6 client is its /64)
+export const LIMITS = { requests: [600, 60_000], calls: [60, 60_000], submissions: [10, 3_600_000] };
+// outbound work at once, for everyone together: a full gate answers busy and frees the moment work ends,
+// so many addresses can slow the site down but never lock it for a window
+export const INFLIGHT = { probes: 8, calls: 64 };
 
 export function contentType(path) {
   return TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
@@ -80,15 +79,29 @@ export function createApp(options = {}) {
   mkdirSync(o.dataDir, { recursive: true });
 
   const probeFn = o.probe ?? realProbe;
-  const probe = (url, extra = {}) => probeFn(url, { allowLoopback: o.allowLoopback, timeoutMs: 12_000, ...extra });
-  const registry = createRegistry({ root: o.root, dataDir: o.dataDir, probe, allowLoopback: o.allowLoopback, log });
+  const inflight = { ...INFLIGHT, ...(o.inflight ?? {}) };
+  const probeGate = createGate(inflight.probes);
+  const callGate = createGate(inflight.calls);
+  const ownProbe = (url, extra = {}) => probeFn(url, { allowLoopback: o.allowLoopback, timeoutMs: 12_000, ...extra });
+  // the doors' probes wait at the gate; the registry's own schedule never does, so a crowd cannot mark plugins down
+  const probe = async (url, extra = {}) => {
+    if (!probeGate.enter()) return { ok: false, error: 'busy' };
+    try { return await ownProbe(url, extra); } finally { probeGate.leave(); }
+  };
+  const registry = createRegistry({ root: o.root, dataDir: o.dataDir, probe: ownProbe, allowLoopback: o.allowLoopback, log });
   registry.reload();
   const submissions = createSubmissions({ dataDir: o.dataDir, log });
   const ledger = createLedger({ file: join(o.dataDir, 'ledger.jsonl') });
-  const gateway = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down'), allowLoopback: o.allowLoopback });
+  const upstream = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down'), allowLoopback: o.allowLoopback });
+  const gateway = {
+    ...upstream,
+    async call(entry, tool, args) {
+      if (!callGate.enter()) return { error: 'busy', ms: 0 };
+      try { return await upstream.call(entry, tool, args); } finally { callGate.leave(); }
+    },
+  };
   const limits = { ...LIMITS, ...(o.limits ?? {}) };
-  const buckets = Object.fromEntries(Object.entries(limits).map(([k, [limit, perMs]]) => [k, createLimiter({ limit, perMs })]));
-  const limiters = { requests: buckets.requests, calls: both(buckets.calls, buckets.callsAll), submissions: both(buckets.submissions, buckets.submissionsAll) };
+  const limiters = Object.fromEntries(Object.entries(limits).map(([k, [limit, perMs]]) => [k, createLimiter({ limit, perMs })]));
   // idle buckets are swept each minute
   const sweeper = setInterval(() => { for (const l of Object.values(limiters)) l.sweep(); }, 60_000);
   sweeper.unref();

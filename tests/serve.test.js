@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp, contentType } from '../serve.js';
 import { testApp } from './helpers/http.js';
+import { startSilent } from './helpers/fake-upstream.js';
 
 function listen(app) {
   return new Promise(resolve => app.listen(0, '127.0.0.1', () => resolve(app.address().port)));
@@ -101,15 +102,27 @@ test('behind a trusted proxy the request bucket keys on the hop the proxy append
   }
 });
 
-test('the submissions and calls buckets are also shared by everyone, bounding the work many addresses can cause', async () => {
-  const { app, close } = await testApp({ limits: { submissionsAll: [1, 3_600_000], callsAll: [1, 60_000] } });
+test('probes and upstream calls are bounded in flight, not by a shared budget: a full gate answers busy and frees as soon as work ends', async () => {
+  let release;
+  const held = new Promise(r => { release = r; });
+  const probe = async url => { if (url.includes('hold')) await held; return { ok: false, error: 'x' }; };
+  const silent = await startSilent();
+  const { app, close } = await testApp({ inflight: { probes: 1, calls: 1 }, probe, upstreamTimeoutMs: 300 });
   try {
-    const { submissions, calls } = app.services.limiters;
-    assert.equal(submissions.take('203.0.113.1').ok, true);
-    assert.equal(submissions.take('203.0.113.2').ok, false);
-    assert.equal(calls.take('203.0.113.1').ok, true);
-    assert.equal(calls.take('203.0.113.2').ok, false);
+    const first = app.services.probe('https://hold.example/mcp');
+    assert.deepEqual(await app.services.probe('https://b.example/mcp'), { ok: false, error: 'busy' });
+    await app.services.registry.probeAll();
+    assert.equal(app.services.registry.byId('alpha').error, 'x', 'the registry\'s own probing never waits at the gate');
+    release();
+    await first;
+    assert.deepEqual(await app.services.probe('https://c.example/mcp'), { ok: false, error: 'x' }, 'free again once the first ended');
+    const entry = { id: 'alpha', url: silent.url, tools: ['echo'], toolList: [] };
+    const call = app.services.gateway.call(entry, 'echo', { text: 'x' });
+    assert.deepEqual(await app.services.gateway.call(entry, 'echo', { text: 'y' }), { error: 'busy', ms: 0 });
+    assert.equal((await call).error, 'upstream unreachable');
+    assert.equal((await app.services.gateway.call(entry, 'echo', { text: 'z' })).error, 'upstream unreachable', 'the place is free again');
   } finally {
     await close();
+    await silent.close();
   }
 });

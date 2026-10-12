@@ -1,7 +1,7 @@
 // tests/ratelimit.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLimiter, clientIp, isLoopback, isLocalRequest } from '../js/ratelimit.js';
+import { createLimiter, clientIp, isLoopback, isLocalRequest, bucketKey, createGate } from '../js/ratelimit.js';
 
 test('a bucket admits limit calls, refuses with a retry-after of at least one second, and refills with time', () => {
   let t = 0;
@@ -45,4 +45,29 @@ test('a limiter holds at most maxKeys buckets, dropping the oldest', () => {
   l.take('a'); l.take('b'); l.take('c');
   assert.equal(l.size(), 2);
   assert.equal(l.take('a').ok, true, 'a was dropped, so it starts full again');
+});
+
+test('bucketKey: an IPv6 client is its /64, an IPv4 client its address, IPv4 written as IPv6 is IPv4', () => {
+  assert.equal(bucketKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), '2001:db8:1:2::/64');
+  assert.equal(bucketKey('2001:db8:1:2::9'), '2001:db8:1:2::/64');
+  assert.equal(bucketKey('2001:DB8::1'), '2001:db8:0:0::/64');
+  assert.equal(bucketKey('::ffff:203.0.113.9'), '203.0.113.9');
+  assert.equal(bucketKey('203.0.113.9'), '203.0.113.9');
+  assert.equal(bucketKey(''), '');
+});
+
+test('one IPv6 client rotating addresses inside its /64 drains one bucket', () => {
+  const l = createLimiter({ limit: 2, perMs: 60_000, now: () => 0 });
+  assert.equal(l.take('2001:db8:1:2::1').ok, true);
+  assert.equal(l.take('2001:db8:1:2::2').ok, true);
+  assert.equal(l.take('2001:db8:1:2::3').ok, false);
+  assert.equal(l.take('2001:db8:1:3::1').ok, true, 'the next /64 is another client');
+});
+
+test('a gate admits max at once and frees a place when one leaves', () => {
+  const g = createGate(2);
+  assert.deepEqual([g.enter(), g.enter(), g.enter()], [true, true, false]);
+  g.leave();
+  assert.equal(g.enter(), true);
+  assert.equal(g.size(), 2);
 });

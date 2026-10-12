@@ -1,9 +1,30 @@
-// js/ratelimit.js — a token bucket per client IP (spec §4), and who the client is behind a proxy
+// js/ratelimit.js — a token bucket per client (spec §4), who the client is behind a proxy, and a gate for work in flight
+import { isIP } from 'node:net';
+
+// the part of an address one client controls: an IPv6 /64, since a single host is handed one; an IPv4 address as it is
+export function bucketKey(ip) {
+  const s = String(ip ?? '').toLowerCase().replace(/^\[|\]$/g, '');
+  const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return mapped[1];
+  if (isIP(s.split('%')[0]) !== 6) return s;
+  const [head, tail] = s.split('%')[0].split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
+}
+
+// at most max pieces of work at once; enter() says whether this one may start, leave() frees its place
+export function createGate(max) {
+  let n = 0;
+  return { enter: () => (n < max ? (n++, true) : false), leave: () => { n = Math.max(0, n - 1); }, size: () => n };
+}
 // at most maxKeys buckets: past that the idle ones are swept, then the oldest dropped, so many addresses cannot grow memory without end
 export function createLimiter({ limit, perMs, now = Date.now, maxKeys = 50_000 } = {}) {
   const buckets = new Map(); // key → { tokens, at }
 
-  function take(key) {
+  function take(address) {
+    const key = bucketKey(address);
     const t = now();
     if (!buckets.has(key) && buckets.size >= maxKeys) {
       sweep();
