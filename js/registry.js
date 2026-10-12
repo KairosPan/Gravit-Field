@@ -22,6 +22,7 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
   // a pass keeps the tools; a failure keeps the last known tools and marks the line down (spec §3.4)
   function setProbe(id, result) {
     const prev = derived.get(id) ?? {};
+    if (!result.ok) log(`probe ${id}: ${result.error}${result.detail ? ` · ${result.detail}` : ''}`);
     derived.set(id, result.ok
       ? { server: result.server, toolList: result.toolList, status: 'up', probedAt: now(), latencyMs: result.latencyMs, transport: result.transport, error: null }
       : { ...prev, status: 'down', probedAt: now(), error: result.error });
@@ -34,8 +35,17 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
     await Promise.all(entries.map(async p => setProbe(p.id, await probe(p.url, { allowLoopback }))));
   }
 
+  // one plugin, now: for a call that finds its tools not known yet (mcp.js)
+  async function probeOne(id) {
+    const p = entries.find(x => x.id === id);
+    if (!p) return null;
+    const result = await probe(p.url, { allowLoopback });
+    setProbe(id, result);
+    return result;
+  }
+
   return {
-    reload, setProbe, setStatus, probeAll,
+    reload, setProbe, setStatus, probeAll, probeOne,
     list: () => entries.map(withDerived),
     byId: id => { const p = entries.find(x => x.id === id); return p ? withDerived(p) : null; },
     has: id => entries.some(p => p.id === id),

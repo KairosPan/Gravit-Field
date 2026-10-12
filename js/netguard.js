@@ -74,6 +74,9 @@ export function checkHost(hostname, { allowLoopback = false, resolve = dnsLookup
 
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
+// the registry names itself to the servers it probes and calls: some hosts refuse a request that carries no User-Agent
+export const USER_AGENT = 'GravityField/0.1 (+https://github.com/KairosPan/Gravit-Field)';
+
 // the answer as a web stream built by hand: nothing is enqueued once it is closed, errored or cancelled (Node's
 // toWeb adapter flushes bytes already buffered into a body the reader cancelled, and throws where nothing catches it);
 // past maxBytes it errors with EBIG and the socket is closed, so nothing larger is ever buffered
@@ -122,6 +125,7 @@ export function guardedFetch({ allowLoopback = false, resolve = dnsLookup, maxBy
       if (!mod) return failWith(new Error(`unsupported protocol ${url.protocol}`));
       const method = (init.method ?? 'GET').toUpperCase();
       const headers = Object.fromEntries(new Headers(init.headers ?? {}));
+      if (!headers['user-agent']) headers['user-agent'] = USER_AGENT;
       const body = init.body == null ? null : typeof init.body === 'string' || init.body instanceof Uint8Array ? init.body : String(init.body);
       if (body != null && headers['content-length'] == null) headers['content-length'] = String(Buffer.byteLength(body));
       const req = mod.request({ hostname: host, port: url.port || undefined, path: url.pathname + url.search, method, headers, lookup, agent: agents[url.protocol], signal: init.signal ?? undefined }, res => {

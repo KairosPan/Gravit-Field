@@ -59,3 +59,18 @@ test('setProbe records up and down; a down keeps the last tool list; setStatus f
   assert.deepEqual(r.list().map(p => p.status), ['up', 'up', 'up']);
   assert.equal(r.byId('beta').server.name, 'http://127.0.0.1:1/mcp');
 });
+
+test('the registry logs each failed probe with its detail, for the operator, and can probe one plugin on demand', async () => {
+  const logged = [];
+  let n = 0;
+  const probe = async url => (n++ === 0 ? { ok: false, error: 'the server answered HTTP 403', detail: 'SSE error: Non-200 status code (403)' } : { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 1, transport: 'http' });
+  const r = createRegistry({ root: FIX, dataDir: mkdtempSync(join(tmpdir(), 'gf-')), probe, allowLoopback: true, log: m => logged.push(m) });
+  r.reload();
+  r.setProbe('alpha', await probe('x'));
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /^probe alpha: the server answered HTTP 403 · SSE error: Non-200 status code \(403\)$/);
+  await r.probeOne('alpha');
+  assert.equal(r.byId('alpha').status, 'up');
+  assert.deepEqual(r.byId('alpha').toolList.map(t => t.name), ['echo']);
+  assert.equal(await r.probeOne('nope'), null);
+});

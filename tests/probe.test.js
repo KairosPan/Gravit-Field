@@ -65,10 +65,12 @@ test('probe resolves the name before connecting: a public-looking name with an a
 });
 
 test('probe errors read as kinds, never as the network\'s internals', async () => {
-  assert.deepEqual(await probe('http://127.0.0.1:1/mcp', { allowLoopback: true }), { ok: false, error: 'connection refused' });
+  const refused = await probe('http://127.0.0.1:1/mcp', { allowLoopback: true });
+  assert.deepEqual({ ok: refused.ok, error: refused.error }, { ok: false, error: 'connection refused' });
   const up = await startUpstream();
   try {
-    assert.deepEqual(await probe(up.url.replace('/mcp', '/nope'), { allowLoopback: true }), { ok: false, error: 'the server answered HTTP 404' });
+    const missing = await probe(up.url.replace('/mcp', '/nope'), { allowLoopback: true });
+    assert.deepEqual({ ok: missing.ok, error: missing.error }, { ok: false, error: 'the server answered HTTP 404' });
   } finally {
     await up.close();
   }
@@ -96,4 +98,10 @@ test('a tool\'s description is cut to one short line: the first line, then its f
   assert.equal(oneLine(long).length, 140);
   assert.match(oneLine(long), /…$/);
   assert.equal(oneLine(undefined), '');
+});
+
+test('a failed probe carries the raw detail for the operator\'s log beside the kind a submitter reads', async () => {
+  const r = await probe('http://127.0.0.1:1/mcp', { allowLoopback: true });
+  assert.equal(r.error, 'connection refused');
+  assert.match(r.detail, /ECONNREFUSED/);
 });

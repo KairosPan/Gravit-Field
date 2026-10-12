@@ -14,7 +14,8 @@ export async function submitManifest(services, input, via, { from = null } = {})
   if (!submissions.reserve(m.id)) return taken;
   try {
     // a failed probe is stored with its error: the operator may know the server; it cannot be approved until one passes
-    const result = await probe(m.url, { from });
+    // the raw detail of a failure stays out of what the submitter reads and what is stored
+    const { detail, ...result } = await probe(m.url, { from });
     if (registry.has(m.id)) return approved; // approved while this probe ran
     const missing = result.ok ? m.tools.filter(t => !result.toolList.some(x => x.name === t)) : [];
     let record;
@@ -36,7 +37,7 @@ export async function approveSubmission(services, id) {
   const { registry, submissions, probe } = services;
   const rec = submissions.get(id);
   if (!rec) return { ok: false, error: 'no such submission' };
-  const result = await probe(rec.manifest.url);
+  const { detail, ...result } = await probe(rec.manifest.url);
   if (!result.ok) return { ok: false, error: `the probe failed: ${result.error}` };
   const missing = rec.manifest.tools.filter(t => !result.toolList.some(x => x.name === t));
   if (missing.length) return { ok: false, error: `the server does not list: ${missing.join(', ')}` };

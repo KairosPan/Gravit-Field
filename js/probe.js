@@ -110,7 +110,8 @@ export async function probe(url, { timeoutMs = 12_000, allowLoopback = false, re
       transport: c.transport,
     };
   } catch (e) {
-    return { ok: false, error: describeError(e) };
+    // the kind is what a submitter may read; the raw detail is for the operator's log only (registry.js, door.js)
+    return { ok: false, error: describeError(e), detail: flatten(e).replace(/\s+/g, ' ').slice(0, 300) };
   } finally {
     await client?.close().catch(() => {});
   }

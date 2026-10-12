@@ -170,3 +170,21 @@ test('the face is stateless: GET and DELETE answer 405 with Allow: POST, so no s
     await close();
   }
 });
+
+test('plugin_call to a plugin whose tools are not known yet probes it on demand, then calls', async () => {
+  const up = await startUpstream();
+  const root = rootWith([manifest('fresh', up.url, { tools: [] })], { featured: ['fresh'], Data: ['fresh'] });
+  const { base, close } = await testApp({ root });
+  let client;
+  try {
+    client = await connect(base);
+    const r = await client.callTool({ name: 'plugin_call', arguments: { id: 'fresh', tool: 'echo', args: { text: 'late' } } });
+    assert.deepEqual(r.content, [{ type: 'text', text: 'echo:late' }]);
+    const no = await client.callTool({ name: 'plugin_call', arguments: { id: 'fresh', tool: 'nope' } });
+    assert.equal(no.content[0].text, 'tool not offered');
+  } finally {
+    await client?.close();
+    await close();
+    await up.close();
+  }
+});

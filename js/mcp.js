@@ -57,8 +57,14 @@ export function makeServer(services, { req, ip }) {
     inputSchema: { id: z.string().max(64), tool: z.string().max(64), args: z.record(z.string(), z.unknown()).optional() },
   }, async ({ id, tool, args }) => {
     // the order of spec §7: unknown plugin · tool not offered · rate limited · the call
-    const p = services.registry.byId(id);
+    let p = services.registry.byId(id);
     if (!p) return fail(pendingHas(id) ? 'in review' : 'unknown plugin');
+    // a plugin whose tools come from its probe, not yet up here (a cold instance, a failed boot probe): probe it now,
+    // at most once a minute, then judge the tool
+    if (!allowedTools(p).includes(tool) && !p.tools?.length && p.status !== 'up' && Date.now() - (p.probedAt ?? 0) > 60_000) {
+      await services.registry.probeOne(id);
+      p = services.registry.byId(id);
+    }
     if (!allowedTools(p).includes(tool)) return fail('tool not offered');
     const gate = services.limiters.calls.take(ip);
     if (!gate.ok) return fail('rate limited');

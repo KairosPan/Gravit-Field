@@ -25,7 +25,8 @@ test('guardedFetch errors past maxBytes and stops reading', async () => {
 test('a probe whose answer passes its byte cap fails as answer too large', async () => {
   const up = await startUpstream({ extraTools: [{ name: 'huge', description: 'd'.repeat(3_000_000) }] });
   try {
-    assert.deepEqual(await probe(up.url, { allowLoopback: true }), { ok: false, error: 'answer too large' });
+    const r = await probe(up.url, { allowLoopback: true });
+    assert.deepEqual({ ok: r.ok, error: r.error }, { ok: false, error: 'answer too large' });
   } finally {
     await up.close();
   }

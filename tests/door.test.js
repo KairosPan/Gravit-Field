@@ -159,3 +159,16 @@ test('an approval whose submission was rejected while it probed answers no such 
     await close();
   }
 });
+
+test('the door never hands a submitter the probe\'s raw detail, and keeps it out of the stored record', async () => {
+  const { app, close } = await testApp();
+  try {
+    const r = await submitManifest(app.services, manifest('omicron', 'http://127.0.0.1:1/mcp'), 'form');
+    assert.equal(r.ok, true);
+    assert.equal(r.probe.error, 'connection refused');
+    assert.equal('detail' in r.probe, false);
+    assert.equal('detail' in app.services.submissions.get('omicron').probe, false);
+  } finally {
+    await close();
+  }
+});

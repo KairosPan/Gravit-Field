@@ -61,3 +61,16 @@ test('guardedFetch answers a redirect as it is and never follows it', async () =
     srv.close();
   }
 });
+
+test('guardedFetch names itself with a User-Agent unless the caller set one', async () => {
+  const seen = [];
+  const srv = createServer((req, res) => { seen.push(req.headers['user-agent']); res.end('ok'); });
+  const port = await new Promise(r => srv.listen(0, '127.0.0.1', () => r(srv.address().port)));
+  try {
+    await (await guardedFetch({ allowLoopback: true })(`http://127.0.0.1:${port}/`)).text();
+    await (await guardedFetch({ allowLoopback: true })(`http://127.0.0.1:${port}/`, { headers: { 'user-agent': 'mine/1' } })).text();
+    assert.deepEqual(seen, ['GravityField/0.1 (+https://github.com/KairosPan/Gravit-Field)', 'mine/1']);
+  } finally {
+    srv.close();
+  }
+});
