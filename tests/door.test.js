@@ -105,3 +105,57 @@ test('the api door names the source of a submission without storing the address'
     await up.close();
   }
 });
+
+test('two submissions racing for one id: one is stored, the other is refused, and the first is never overwritten', async () => {
+  const slow = async () => { await new Promise(r => setTimeout(r, 50)); return { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 50, transport: 'http' }; };
+  const { app, close } = await testApp({ probe: slow });
+  try {
+    const [a, b] = await Promise.all([
+      submitManifest(app.services, manifest('zeta', 'https://first.example/mcp'), 'form', { from: 'k1' }),
+      submitManifest(app.services, manifest('zeta', 'https://second.example/mcp'), 'form', { from: 'k2' }),
+    ]);
+    assert.deepEqual([a.ok, b.ok], [true, false]);
+    assert.deepEqual(b.error, { field: 'id', rule: 'a pending submission already has this id' });
+    assert.equal(app.services.submissions.get('zeta').manifest.url, 'https://first.example/mcp');
+    assert.equal(app.services.submissions.reserve('zeta'), false, 'the reservation gave way to the stored file');
+  } finally {
+    await close();
+  }
+});
+
+test('a plugin approved while a submission of its id was probing is not shadowed by it', async () => {
+  let approve;
+  const gate = new Promise(r => { approve = r; });
+  const probe = async url => { if (url.includes('late')) await gate; return { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 1, transport: 'http' }; };
+  const { app, close } = await testApp({ probe });
+  try {
+    await submitManifest(app.services, manifest('omega', 'https://early.example/mcp'), 'form');
+    app.services.submissions.reject('omega', 'x');
+    const racing = submitManifest(app.services, manifest('omega', 'https://late.example/mcp'), 'form');
+    const has = app.services.registry.has;
+    app.services.registry.has = id => id === 'omega' || has(id);
+    approve();
+    assert.deepEqual((await racing).error, { field: 'id', rule: 'an approved plugin already has this id' });
+    assert.equal(app.services.submissions.has('omega'), false);
+  } finally {
+    await close();
+  }
+});
+
+test('an approval whose submission was rejected while it probed answers no such submission and lists nothing', async () => {
+  let go;
+  const gate = new Promise(r => { go = r; });
+  let n = 0;
+  const probe = async () => { if (n++ === 1) await gate; return { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 1, transport: 'http' }; };
+  const { app, close } = await testApp({ probe });
+  try {
+    await submitManifest(app.services, manifest('psi', 'https://p.example/mcp'), 'form');
+    const approving = approveSubmission(app.services, 'psi');
+    rejectSubmission(app.services, 'psi', 'x');
+    go();
+    assert.deepEqual(await approving, { ok: false, error: 'no such submission' });
+    assert.equal(app.services.registry.has('psi'), false);
+  } finally {
+    await close();
+  }
+});

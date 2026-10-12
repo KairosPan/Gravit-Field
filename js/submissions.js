@@ -45,7 +45,10 @@ export function createSubmissions({ dataDir, now = Date.now, log = () => {}, max
   const read = kind => readdirSync(dirs[kind]).filter(f => f.endsWith('.json')).sort().map(f => {
     try { return JSON.parse(readFileSync(join(dirs[kind], f), 'utf8')); } catch (e) { log(`skipping ${join(dirs[kind], f)}: ${e.message}`); return null; }
   }).filter(Boolean);
-  const write = (kind, id, rec) => writeFileSync(file(kind, id), JSON.stringify(rec, null, 2) + '\n');
+  // a pending file is created only if absent ('wx'), so a later submission can never overwrite an earlier one
+  const write = (kind, id, rec, flag = 'w') => writeFileSync(file(kind, id), JSON.stringify(rec, null, 2) + '\n', { flag });
+  // ids whose probe is running: held from the door's first check until the file exists or the door gives up
+  const reserved = new Set();
 
   function get(id) {
     const f = file('pending', id);
@@ -56,12 +59,18 @@ export function createSubmissions({ dataDir, now = Date.now, log = () => {}, max
     dirs, get,
     list: () => pending().sort((a, b) => b.at - a.at),
     has: id => existsSync(file('pending', id)),
+    reserve(id) {
+      if (reserved.has(id) || existsSync(file('pending', id))) return false;
+      reserved.add(id);
+      return true;
+    },
+    release: id => { reserved.delete(id); },
     add({ manifest, probe, via, from = null }) {
       const queue = pending();
       if (from && queue.filter(r => r.from === from).length >= maxPerSource) throw Object.assign(new Error(`${maxPerSource} of your submissions are already in review`), { code: 'ESOURCE' });
       if (queue.length >= maxPending) throw Object.assign(new Error('the review queue is full'), { code: 'EFULL' });
       const rec = { manifest, probe, via, at: now(), ...(from ? { from } : {}) };
-      write('pending', manifest.id, rec);
+      write('pending', manifest.id, rec, 'wx');
       return rec;
     },
     approve(id, { probe }) {

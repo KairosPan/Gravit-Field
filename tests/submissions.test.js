@@ -90,3 +90,16 @@ test('one source holds at most maxPerSource places in the queue, others still ge
   assert.equal(s.add({ manifest: manifest('ee'), probe: probeOk, via: 'form', from: 'k1' }).manifest.id, 'ee');
   assert.equal('from' in s.add({ manifest: manifest('ff'), probe: probeOk, via: 'form' }), false, 'no source, nothing recorded and nothing counted');
 });
+
+test('add never overwrites a pending file, and an id can be reserved once while its probe runs', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'gf-'));
+  const s = createSubmissions({ dataDir });
+  s.add({ manifest: manifest('aa'), probe: probeOk, via: 'form' });
+  assert.throws(() => s.add({ manifest: { ...manifest('aa'), url: 'https://hijack.example/mcp' }, probe: probeOk, via: 'form' }), e => e.code === 'EEXIST');
+  assert.equal(s.get('aa').manifest.url, 'https://a.example/mcp');
+  assert.equal(s.reserve('aa'), false, 'pending already');
+  assert.equal(s.reserve('bb'), true);
+  assert.equal(s.reserve('bb'), false, 'reserved already');
+  s.release('bb');
+  assert.equal(s.reserve('bb'), true);
+});
