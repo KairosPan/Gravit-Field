@@ -1,0 +1,8 @@
+{
+  "featured": ["secedgar", "coingecko", "ryufin", "cryptowisser"],
+  "Data": ["secedgar", "ryufin", "stocklens"],
+  "Monitors": [],
+  "Bots": [],
+  "Crypto": ["coingecko", "cryptowisser", "pmpicks"],
+  "Quant": []
+}

@@ -1,0 +1,1 @@
+{ "id": "alpha", "name": "Alpha Data", "kind": "Data", "blurb": "Daily bars and a screen, for tests", "url": "http://127.0.0.1:1/mcp", "homepage": "https://example.com/alpha", "by": "@tests", "icon": "bars", "needs": "none", "writes": ["message"], "asks": ["“Is alpha up?”"], "tools": ["echo"] }

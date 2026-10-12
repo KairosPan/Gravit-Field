@@ -1,0 +1,14 @@
+{
+  "id": "secedgar",
+  "name": "SEC EDGAR",
+  "kind": "Data",
+  "blurb": "Filings, XBRL financials, insider trades and material events, by ticker or CIK",
+  "url": "https://secedgar.caseyjhand.com/mcp",
+  "homepage": "https://github.com/cyanheads/secedgar-mcp-server",
+  "by": "@cyanheads",
+  "icon": "fileCheck",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“What did NVIDIA file last quarter?”", "“Who sold shares at Tesla this month?”"],
+  "tools": ["secedgar_company_search", "secedgar_search_filings", "secedgar_get_filing", "secedgar_get_financials", "secedgar_get_insider_transactions"]
+}

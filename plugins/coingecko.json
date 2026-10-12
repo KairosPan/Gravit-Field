@@ -1,0 +1,14 @@
+{
+  "id": "coingecko",
+  "name": "CoinGecko",
+  "kind": "Crypto",
+  "blurb": "Prices, market caps, volumes and history for every coin, from CoinGecko's public API",
+  "url": "https://mcp.api.coingecko.com/mcp",
+  "homepage": "https://docs.coingecko.com/docs/mcp-server",
+  "by": "@coingecko",
+  "icon": "coin",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“What is BTC trading at right now?”", "“Which coins moved most this week?”"],
+  "tools": []
+}

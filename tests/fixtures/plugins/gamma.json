@@ -1,0 +1,1 @@
+{ "id": "gamma", "name": "Gamma Monitor", "kind": "Monitors", "blurb": "Watches a thing", "url": "http://127.0.0.1:1/mcp", "by": "@gamma", "icon": "bell", "needs": "none", "writes": ["message", "proposal"], "tools": ["echo", "boom"] }

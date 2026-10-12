@@ -1,0 +1,14 @@
+{
+  "id": "cryptowisser",
+  "name": "Cryptowisser News",
+  "kind": "Crypto",
+  "blurb": "Crypto news: the latest, by coin, trending stories, and a search",
+  "url": "https://www.cryptowisser.com/mcp/server",
+  "homepage": "https://www.cryptowisser.com",
+  "by": "@cryptowisser",
+  "icon": "file",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“What is the news on Solana today?”"],
+  "tools": ["latest-news", "news-about", "trending-stories", "search-news"]
+}

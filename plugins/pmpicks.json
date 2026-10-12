@@ -1,0 +1,14 @@
+{
+  "id": "pmpicks",
+  "name": "PredictionMarketsPicks",
+  "kind": "Crypto",
+  "blurb": "Kalshi crypto boards, perp liquidation math, expected value and Kelly sizing",
+  "url": "https://predictionmarketspicks.com/api/mcp-crypto/mcp?via=registry",
+  "homepage": "https://predictionmarketspicks.com",
+  "by": "@predictionmarketspicks",
+  "icon": "prediction",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“What does the 15-minute BTC board say?”", "“Size this bet by Kelly”"],
+  "tools": ["fifteen_min_board", "perps_board", "perp_liquidation", "calculate_ev", "kelly_size"]
+}

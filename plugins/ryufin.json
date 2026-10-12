@@ -1,0 +1,14 @@
+{
+  "id": "ryufin",
+  "name": "ryufin",
+  "kind": "Data",
+  "blurb": "Plain answers on about 2,400 US stocks, drawn from SEC filings",
+  "url": "https://ryufin.com/mcp",
+  "homepage": "https://ryufin.com",
+  "by": "@ryufin",
+  "icon": "book",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“Is Apple still growing?”", "“What changed in Costco's last answers?”"],
+  "tools": ["search_stocks", "get_stock_answers", "get_stock_overview", "get_financial_history", "get_company_news"]
+}

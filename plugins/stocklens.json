@@ -1,0 +1,14 @@
+{
+  "id": "stocklens",
+  "name": "StockLens",
+  "kind": "Data",
+  "blurb": "Nightly AI ratings on US stocks, a market summary and a screen",
+  "url": "https://mcp.stocklens.com/mcp",
+  "homepage": null,
+  "by": "@stocklens",
+  "icon": "stock",
+  "needs": "none",
+  "writes": ["message"],
+  "asks": ["“How does the market look this morning?”", "“Which stocks screen well today?”"],
+  "tools": ["get_market_summary", "discover_stocks", "initiate_analysis", "fetch_analysis_result"]
+}
