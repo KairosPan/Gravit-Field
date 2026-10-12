@@ -24,9 +24,10 @@ export const TYPES = {
 };
 // requests a minute, plugin calls a minute, submissions an hour, per client (spec §4; an IPv6 client is its /64)
 export const LIMITS = { requests: [600, 60_000], calls: [60, 60_000], submissions: [10, 3_600_000] };
-// outbound work at once, for everyone together: a full gate answers busy and frees the moment work ends,
-// so many addresses can slow the site down but never lock it for a window
-export const INFLIGHT = { probes: 8, calls: 64 };
+// outbound work at once: for everyone together, and a share for each source; a full gate answers busy and frees the
+// moment work ends, so a crowd can slow the site down but never lock it for a window, and one client cannot take every place.
+// Together with the per-client buckets this bounds sockets, memory and throughput: places × the upstream timeout
+export const INFLIGHT = { probes: 8, calls: 64, probesPerSource: 2, callsPerSource: 8 };
 
 export function contentType(path) {
   return TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
@@ -70,13 +71,13 @@ export function createApp(options = {}) {
 
   const probeFn = o.probe ?? realProbe;
   const inflight = { ...INFLIGHT, ...(o.inflight ?? {}) };
-  const probeGate = createGate(inflight.probes);
-  const callGate = createGate(inflight.calls);
+  const probeGate = createGate(inflight.probes, { perKey: inflight.probesPerSource });
+  const callGate = createGate(inflight.calls, { perKey: inflight.callsPerSource });
   const ownProbe = (url, extra = {}) => probeFn(url, { allowLoopback: o.allowLoopback, timeoutMs: 12_000, ...extra });
   // the doors' probes wait at the gate; the registry's own schedule never does, so a crowd cannot mark plugins down
-  const probe = async (url, extra = {}) => {
-    if (!probeGate.enter()) return { ok: false, error: 'busy' };
-    try { return await ownProbe(url, extra); } finally { probeGate.leave(); }
+  const probe = async (url, { from, ...extra } = {}) => {
+    if (!probeGate.enter(from)) return { ok: false, error: 'busy' };
+    try { return await ownProbe(url, extra); } finally { probeGate.leave(from); }
   };
   const registry = createRegistry({ root: o.root, dataDir: o.dataDir, probe: ownProbe, allowLoopback: o.allowLoopback, log });
   registry.reload();
@@ -85,9 +86,9 @@ export function createApp(options = {}) {
   const upstream = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down'), allowLoopback: o.allowLoopback });
   const gateway = {
     ...upstream,
-    async call(entry, tool, args) {
-      if (!callGate.enter()) return { error: 'busy', ms: 0 };
-      try { return await upstream.call(entry, tool, args); } finally { callGate.leave(); }
+    async call(entry, tool, args, { from } = {}) {
+      if (!callGate.enter(from)) return { error: 'busy', ms: 0 };
+      try { return await upstream.call(entry, tool, args); } finally { callGate.leave(from); }
     },
   };
   const limits = { ...LIMITS, ...(o.limits ?? {}) };

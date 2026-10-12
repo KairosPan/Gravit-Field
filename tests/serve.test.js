@@ -141,3 +141,20 @@ test('a submitter is known by a salted digest of its client key: one per /64 wit
     await two.close();
   }
 });
+
+test('each source holds a share of the in-flight places, so one client cannot starve the others', async () => {
+  let release;
+  const held = new Promise(r => { release = r; });
+  const probe = async url => { if (url.includes('hold')) await held; return { ok: false, error: 'x' }; };
+  const { app, close } = await testApp({ inflight: { probes: 4, probesPerSource: 1, callsPerSource: 1 }, probe });
+  try {
+    const first = app.services.probe('https://hold.example/mcp', { from: 'k1' });
+    assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k1' }), { ok: false, error: 'busy' });
+    assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k2' }), { ok: false, error: 'x' }, 'another source still gets in');
+    release();
+    await first;
+    assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k1' }), { ok: false, error: 'x' });
+  } finally {
+    await close();
+  }
+});

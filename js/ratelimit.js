@@ -14,10 +14,27 @@ export function bucketKey(ip) {
   return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(':') + '::/64';
 }
 
-// at most max pieces of work at once; enter() says whether this one may start, leave() frees its place
-export function createGate(max) {
+// at most max pieces of work at once, and at most perKey for one key; enter(key) says whether this one may start,
+// leave(key) frees its place. A key-less entry counts against the total only
+export function createGate(max, { perKey = Infinity } = {}) {
   let n = 0;
-  return { enter: () => (n < max ? (n++, true) : false), leave: () => { n = Math.max(0, n - 1); }, size: () => n };
+  const held = new Map();
+  return {
+    enter(key) {
+      if (n >= max) return false;
+      if (key != null && (held.get(key) ?? 0) >= perKey) return false;
+      n++;
+      if (key != null) held.set(key, (held.get(key) ?? 0) + 1);
+      return true;
+    },
+    leave(key) {
+      n = Math.max(0, n - 1);
+      if (key == null) return;
+      const k = (held.get(key) ?? 1) - 1;
+      if (k > 0) held.set(key, k); else held.delete(key);
+    },
+    size: () => n,
+  };
 }
 // at most maxKeys buckets: past that the idle ones are swept, then the oldest dropped, so many addresses cannot grow memory without end
 export function createLimiter({ limit, perMs, now = Date.now, maxKeys = 50_000 } = {}) {

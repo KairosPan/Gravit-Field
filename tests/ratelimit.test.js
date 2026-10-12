@@ -71,3 +71,13 @@ test('a gate admits max at once and frees a place when one leaves', () => {
   assert.equal(g.enter(), true);
   assert.equal(g.size(), 2);
 });
+
+test('a gate can also hold each key to a share, so one client cannot take every place', () => {
+  const g = createGate(3, { perKey: 1 });
+  assert.deepEqual([g.enter('a'), g.enter('a'), g.enter('b'), g.enter('c'), g.enter('d')], [true, false, true, true, false]);
+  g.leave('a');
+  assert.equal(g.enter('a'), true, 'its own place came back');
+  assert.equal(g.enter(), false, 'a key-less entry still counts against the total');
+  g.leave('b');
+  assert.equal(g.enter(), true);
+});
