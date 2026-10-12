@@ -17,9 +17,23 @@ export function pendingEntry(rec) {
   };
 }
 
-export function createSubmissions({ dataDir, now = Date.now, log = () => {} }) {
+// the queue holds at most maxPending submissions, so the review page and every catalogue stay small
+export const MAX_PENDING = 200;
+
+export function createSubmissions({ dataDir, now = Date.now, log = () => {}, maxPending = MAX_PENDING }) {
   const dirs = { pending: join(dataDir, 'submissions'), approved: join(dataDir, 'approved'), rejected: join(dataDir, 'rejected') };
   for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
+  // pending records by file name: each file is parsed once; a listing reads the directory and parses only what is new
+  const seen = new Map();
+  function pending() {
+    const names = new Set(readdirSync(dirs.pending).filter(f => f.endsWith('.json')));
+    for (const name of seen.keys()) if (!names.has(name)) seen.delete(name);
+    for (const name of names) {
+      if (seen.has(name)) continue;
+      try { seen.set(name, JSON.parse(readFileSync(join(dirs.pending, name), 'utf8'))); } catch (e) { log(`skipping ${join(dirs.pending, name)}: ${e.message}`); seen.set(name, null); }
+    }
+    return [...seen.values()].filter(Boolean);
+  }
 
   // the id has passed the manifest rule before it is ever a file name; anything else is refused here too
   const file = (kind, id) => {
@@ -38,9 +52,10 @@ export function createSubmissions({ dataDir, now = Date.now, log = () => {} }) {
 
   return {
     dirs, get,
-    list: () => read('pending').sort((a, b) => b.at - a.at),
+    list: () => pending().sort((a, b) => b.at - a.at),
     has: id => existsSync(file('pending', id)),
     add({ manifest, probe, via }) {
+      if (pending().length >= maxPending) throw Object.assign(new Error('the review queue is full'), { code: 'EFULL' });
       const rec = { manifest, probe, via, at: now() };
       write('pending', manifest.id, rec);
       return rec;

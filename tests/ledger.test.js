@@ -49,3 +49,16 @@ test('the file rotates at rotateBytes and the counts carry on', () => {
   assert.equal(l.size(), 6);
   assert.equal(l.forPlugin('a'), 6);
 });
+
+test('the counts are kept as calls arrive and the last-hour window holds only the last hour, so memory stays bounded', () => {
+  const c = clock();
+  const l = createLedger({ now: c.now });
+  for (let i = 0; i < 5; i++) l.record({ plugin: 'a', tool: 'x', ok: true, ms: 1 });
+  assert.equal(l.windowSize(), 5);
+  c.tick(3_600_000 + 1);
+  l.record({ plugin: 'a', tool: 'x', ok: true, ms: 1 });
+  assert.equal(l.windowSize(), 1, 'the five old lines left the window');
+  assert.deepEqual(l.counts().plugins.a, { total: 6, lastHour: 1, tools: { x: 6 } });
+  assert.equal(l.size(), 6);
+  assert.deepEqual(l.perPlugin(), { a: 6 });
+});

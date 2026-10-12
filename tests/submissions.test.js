@@ -58,3 +58,23 @@ test('pendingEntry shows a submission the way the catalogue needs it', () => {
   assert.deepEqual(bad.toolList, []);
   assert.equal(bad.server, null);
 });
+
+test('the queue holds at most maxPending submissions; a file put beside them is listed; listing does not re-read what it has read', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'gf-'));
+  const logged = [];
+  let t = 100;
+  const s = createSubmissions({ dataDir, maxPending: 2, log: m => logged.push(m), now: () => t });
+  s.add({ manifest: manifest('aa'), probe: probeOk, via: 'form' });
+  t = 200;
+  s.add({ manifest: manifest('bb'), probe: probeOk, via: 'form' });
+  assert.throws(() => s.add({ manifest: manifest('cc'), probe: probeOk, via: 'form' }), e => e.code === 'EFULL' && e.message === 'the review queue is full');
+  assert.equal(s.has('cc'), false);
+  writeFileSync(join(dataDir, 'submissions', 'dd.json'), JSON.stringify({ manifest: manifest('dd'), probe: probeOk, via: 'form', at: 5 }));
+  writeFileSync(join(dataDir, 'submissions', 'ee.json'), '{not json');
+  assert.deepEqual(s.list().map(r => r.manifest.id), ['bb', 'aa', 'dd']);
+  s.list();
+  s.list();
+  assert.equal(logged.length, 1, 'the corrupt file is read and logged once, not on every listing');
+  s.reject('dd', 'x');
+  assert.deepEqual(s.list().map(r => r.manifest.id), ['bb', 'aa']);
+});
