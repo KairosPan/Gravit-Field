@@ -188,3 +188,36 @@ test('plugin_call to a plugin whose tools are not known yet probes it on demand,
     await up.close();
   }
 });
+
+test('twenty simultaneous calls to a plugin whose tools are unknown start one probe, and every attempt costs the caller a call', async () => {
+  const up = await startUpstream();
+  let probes = 0;
+  const { probe: real } = await import('../js/probe.js');
+  const counting = async (url, o) => { probes++; return real(url, o); };
+  const root = rootWith([manifest('fresh', up.url, { tools: [] }), manifest('dead-one', 'http://127.0.0.1:1/mcp', { tools: [] }), manifest('dead-two', 'http://127.0.0.1:2/mcp', { tools: [] })], { featured: ['fresh'], Data: ['fresh'] });
+  const { base, close } = await testApp({ root, probe: counting });
+  let client;
+  try {
+    client = await connect(base);
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => client.callTool({ name: 'plugin_call', arguments: { id: 'fresh', tool: 'echo', args: { text: String(i) } } })));
+    assert.equal(probes, 1);
+    assert.ok(results.every(r => !r.isError || r.content[0].text === 'busy'), 'nothing fails but the per-source share of calls at once');
+    assert.ok(results.filter(r => !r.isError).length >= 8, 'at least the share went through');
+  } finally {
+    await client?.close();
+    await close();
+    await up.close();
+  }
+  probes = 0;
+  const tight = await testApp({ root, probe: counting, limits: { calls: [1, 60_000] } });
+  let c2;
+  try {
+    c2 = await connect(tight.base);
+    assert.equal((await c2.callTool({ name: 'plugin_call', arguments: { id: 'dead-one', tool: 'echo' } })).content[0].text, 'tool not offered');
+    assert.equal((await c2.callTool({ name: 'plugin_call', arguments: { id: 'dead-two', tool: 'echo' } })).content[0].text, 'rate limited');
+    assert.equal(probes, 1, 'the second attempt found no call left and probed nothing');
+  } finally {
+    await c2?.close();
+    await tight.close();
+  }
+});

@@ -74,3 +74,22 @@ test('the registry logs each failed probe with its detail, for the operator, and
   assert.deepEqual(r.byId('alpha').toolList.map(t => t.name), ['echo']);
   assert.equal(await r.probeOne('nope'), null);
 });
+
+test('an on-demand probe runs once per plugin at a time and at most once a minute, however many callers ask', async () => {
+  let n = 0;
+  const slow = async () => { n++; await new Promise(r => setTimeout(r, 50)); return { ok: true, server: { name: 's', version: '1' }, toolList: [{ name: 'echo', description: '', inputSchema: { type: 'object' } }], latencyMs: 50, transport: 'http' }; };
+  let t = 1_000_000;
+  const r = createRegistry({ root: FIX, dataDir: mkdtempSync(join(tmpdir(), 'gf-')), probe: slow, allowLoopback: true, now: () => t });
+  r.reload();
+  const answers = await Promise.all(Array.from({ length: 20 }, () => r.probeOnDemand('alpha')));
+  assert.equal(n, 1, 'twenty callers shared one probe');
+  assert.ok(answers.every(a => a?.ok === true));
+  assert.equal(await r.probeOnDemand('alpha'), null, 'within the minute nothing starts');
+  assert.equal(n, 1);
+  t += 61_000;
+  const own = [];
+  await r.probeOnDemand('alpha', async url => { own.push(url); return slow(); });
+  assert.equal(n, 2, 'a minute later one more, through the probe it was given');
+  assert.deepEqual(own, ['http://127.0.0.1:1/mcp']);
+  assert.equal(await r.probeOnDemand('nope'), null);
+});

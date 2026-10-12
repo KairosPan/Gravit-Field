@@ -35,7 +35,31 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
     await Promise.all(entries.map(async p => setProbe(p.id, await probe(p.url, { allowLoopback }))));
   }
 
-  // one plugin, now: for a call that finds its tools not known yet (mcp.js)
+  // a probe a call asked for (mcp.js): one per plugin at a time, shared by every caller that asks meanwhile, and at most
+  // once a minute, counted from the moment it starts; through the probe it is given (the doors' gate), else the registry's own
+  const ON_DEMAND_EVERY = 60_000;
+  const running = new Map(); // id → the probe in flight
+  const attempted = new Map(); // id → when the last on-demand probe started
+  function probeOnDemand(id, probeFn = probe) {
+    const p = entries.find(x => x.id === id);
+    if (!p) return Promise.resolve(null);
+    if (running.has(id)) return running.get(id);
+    if (now() - (attempted.get(id) ?? -Infinity) < ON_DEMAND_EVERY) return Promise.resolve(null);
+    attempted.set(id, now());
+    const job = (async () => {
+      try {
+        const result = await probeFn(p.url, { allowLoopback });
+        setProbe(id, result);
+        return result;
+      } finally {
+        running.delete(id);
+      }
+    })();
+    running.set(id, job);
+    return job;
+  }
+
+  // one plugin, now, with the registry's own probe
   async function probeOne(id) {
     const p = entries.find(x => x.id === id);
     if (!p) return null;
@@ -45,7 +69,7 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
   }
 
   return {
-    reload, setProbe, setStatus, probeAll, probeOne,
+    reload, setProbe, setStatus, probeAll, probeOne, probeOnDemand,
     list: () => entries.map(withDerived),
     byId: id => { const p = entries.find(x => x.id === id); return p ? withDerived(p) : null; },
     has: id => entries.some(p => p.id === id),

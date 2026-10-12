@@ -59,10 +59,13 @@ export function makeServer(services, { req, ip }) {
     // the order of spec §7: unknown plugin · tool not offered · rate limited · the call
     let p = services.registry.byId(id);
     if (!p) return fail(pendingHas(id) ? 'in review' : 'unknown plugin');
-    // a plugin whose tools come from its probe, not yet up here (a cold instance, a failed boot probe): probe it now,
-    // at most once a minute, then judge the tool
-    if (!allowedTools(p).includes(tool) && !p.tools?.length && p.status !== 'up' && Date.now() - (p.probedAt ?? 0) > 60_000) {
-      await services.registry.probeOne(id);
+    // a plugin whose tools come from its probe, not yet up here (a cold instance, a failed boot probe): every attempt
+    // costs the caller a call; the probe is shared by all who ask meanwhile, starts at most once a minute, and waits at
+    // the doors' in-flight gate like any other
+    if (!allowedTools(p).includes(tool) && !p.tools?.length && p.status !== 'up') {
+      const gate = services.limiters.calls.take(ip);
+      if (!gate.ok) return fail('rate limited');
+      await services.registry.probeOnDemand(id, (url, o) => services.probe(url, { ...o, from }));
       p = services.registry.byId(id);
     }
     if (!allowedTools(p).includes(tool)) return fail('tool not offered');
