@@ -88,3 +88,28 @@ test('the catalogue a request sees: fixtures, pending entries, calls, and the or
     await close();
   }
 });
+
+test('behind a trusted proxy the request bucket keys on the hop the proxy appended, so a written first hop does not dodge it', async () => {
+  const { base, close } = await testApp({ trustProxy: true, limits: { requests: [2, 60_000] } });
+  try {
+    const hit = i => fetch(`${base}/healthz`, { headers: { 'x-forwarded-for': `198.51.100.${i}, 203.0.113.9` } });
+    assert.equal((await hit(1)).status, 200);
+    assert.equal((await hit(2)).status, 200);
+    assert.equal((await hit(3)).status, 429);
+  } finally {
+    await close();
+  }
+});
+
+test('the submissions and calls buckets are also shared by everyone, bounding the work many addresses can cause', async () => {
+  const { app, close } = await testApp({ limits: { submissionsAll: [1, 3_600_000], callsAll: [1, 60_000] } });
+  try {
+    const { submissions, calls } = app.services.limiters;
+    assert.equal(submissions.take('203.0.113.1').ok, true);
+    assert.equal(submissions.take('203.0.113.2').ok, false);
+    assert.equal(calls.take('203.0.113.1').ok, true);
+    assert.equal(calls.take('203.0.113.2').ok, false);
+  } finally {
+    await close();
+  }
+});

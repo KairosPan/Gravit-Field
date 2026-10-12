@@ -17,8 +17,12 @@ export const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2',
 };
-// requests a minute, plugin calls a minute, submissions an hour, per client address (spec §4)
-export const LIMITS = { requests: [600, 60_000], calls: [60, 60_000], submissions: [10, 3_600_000] };
+// requests a minute, plugin calls a minute, submissions an hour, per client address (spec §4); calls and submissions also
+// have one bucket shared by everyone, bounding the outbound work any number of addresses can cause
+export const LIMITS = { requests: [600, 60_000], calls: [60, 60_000], submissions: [10, 3_600_000], callsAll: [600, 60_000], submissionsAll: [60, 3_600_000] };
+
+// a per-address bucket and the shared one behind it: take(key) admits only when both do
+const both = (one, all) => ({ take: key => { const a = one.take(key); return a.ok ? all.take('all') : a; }, sweep: () => { one.sweep(); all.sweep(); }, size: () => one.size() });
 
 export function contentType(path) {
   return TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
@@ -83,7 +87,11 @@ export function createApp(options = {}) {
   const ledger = createLedger({ file: join(o.dataDir, 'ledger.jsonl') });
   const gateway = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down'), allowLoopback: o.allowLoopback });
   const limits = { ...LIMITS, ...(o.limits ?? {}) };
-  const limiters = Object.fromEntries(Object.entries(limits).map(([k, [limit, perMs]]) => [k, createLimiter({ limit, perMs })]));
+  const buckets = Object.fromEntries(Object.entries(limits).map(([k, [limit, perMs]]) => [k, createLimiter({ limit, perMs })]));
+  const limiters = { requests: buckets.requests, calls: both(buckets.calls, buckets.callsAll), submissions: both(buckets.submissions, buckets.submissionsAll) };
+  // idle buckets are swept each minute
+  const sweeper = setInterval(() => { for (const l of Object.values(limiters)) l.sweep(); }, 60_000);
+  sweeper.unref();
 
   const services = {
     options: o, log, registry, submissions, ledger, gateway, limiters, probe,
@@ -134,6 +142,7 @@ export function createApp(options = {}) {
   const close = server.close.bind(server);
   server.close = cb => {
     if (timer) clearInterval(timer);
+    clearInterval(sweeper);
     gateway.close().catch(() => {});
     server.closeAllConnections();
     return close(cb);

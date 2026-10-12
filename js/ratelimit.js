@@ -1,9 +1,14 @@
 // js/ratelimit.js — a token bucket per client IP (spec §4), and who the client is behind a proxy
-export function createLimiter({ limit, perMs, now = Date.now } = {}) {
+// at most maxKeys buckets: past that the idle ones are swept, then the oldest dropped, so many addresses cannot grow memory without end
+export function createLimiter({ limit, perMs, now = Date.now, maxKeys = 50_000 } = {}) {
   const buckets = new Map(); // key → { tokens, at }
 
   function take(key) {
     const t = now();
+    if (!buckets.has(key) && buckets.size >= maxKeys) {
+      sweep();
+      if (buckets.size >= maxKeys) buckets.delete(buckets.keys().next().value);
+    }
     const b = buckets.get(key) ?? { tokens: limit, at: t };
     b.tokens = Math.min(limit, b.tokens + ((t - b.at) / perMs) * limit);
     b.at = t;
@@ -20,13 +25,21 @@ export function createLimiter({ limit, perMs, now = Date.now } = {}) {
   return { take, sweep, size: () => buckets.size };
 }
 
-// the first hop of X-Forwarded-For only when a proxy is trusted (spec §4); otherwise the socket, whatever the header says
+// behind a trusted proxy, the last hop of X-Forwarded-For: the one the proxy appended; every earlier hop is whatever the client
+// wrote. Without a trusted proxy, the socket, whatever the header says
 export function clientIp(req, { trustProxy = false } = {}) {
   if (trustProxy) {
-    const xff = req.headers?.['x-forwarded-for'];
-    if (xff) return String(xff).split(',')[0].trim();
+    const hops = String(req.headers?.['x-forwarded-for'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
   }
   return req.socket?.remoteAddress ?? '';
 }
 
 export const isLoopback = ip => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+
+// local for the admin gate: the socket is loopback and no proxy forwarded the request, so a proxy on the same machine
+// does not make the whole world local, and no header a client writes can either
+export function isLocalRequest(req) {
+  const h = req.headers ?? {};
+  return isLoopback(req.socket?.remoteAddress ?? '') && !h['x-forwarded-for'] && !h.forwarded && !h['x-real-ip'];
+}
