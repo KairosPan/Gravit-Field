@@ -17,6 +17,7 @@ import { createPages } from './js/pages.js';
 import { createApi } from './js/api.js';
 import { createMcpRoute } from './js/mcp.js';
 import { createSubmitRoute } from './js/submit.js';
+import { hostAllowed, writeAllowed } from './js/sameorigin.js';
 
 export { sendJson, sendHtml, notFound };
 
@@ -127,6 +128,8 @@ export function createApp(options = {}) {
   const server = createServer(async (req, res) => {
     let url;
     try { url = new URL(req.url, 'http://localhost'); decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end(); }
+    if (!hostAllowed(req, o)) return sendJson(res, 403, { error: 'unknown host' });
+    if (!writeAllowed(req, o)) return sendJson(res, 403, { error: 'cross-site request' });
     const ip = clientIp(req, o);
     const gate = limiters.requests.take(ip);
     if (!gate.ok) return sendJson(res, 429, { error: 'rate limited' }, { 'retry-after': String(gate.retryAfterSec) });
