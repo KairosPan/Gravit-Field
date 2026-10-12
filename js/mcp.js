@@ -65,7 +65,8 @@ export function makeServer(services, { req, ip }) {
     if (!allowedTools(p).includes(tool) && !p.tools?.length && p.status !== 'up') {
       const gate = services.limiters.calls.take(ip);
       if (!gate.ok) return fail('rate limited');
-      await services.registry.probeOnDemand(id, (url, o) => services.probe(url, { ...o, from }));
+      const probed = await services.registry.probeOnDemand(id, (url, o) => services.probe(url, { ...o, from }));
+      if (probed?.busy) return fail('busy');
       p = services.registry.byId(id);
     }
     if (!allowedTools(p).includes(tool)) return fail('tool not offered');

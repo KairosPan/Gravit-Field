@@ -111,7 +111,7 @@ test('probes and upstream calls are bounded in flight, not by a shared budget: a
   const { app, close } = await testApp({ inflight: { probes: 1, calls: 1 }, probe, upstreamTimeoutMs: 300 });
   try {
     const first = app.services.probe('https://hold.example/mcp');
-    assert.deepEqual(await app.services.probe('https://b.example/mcp'), { ok: false, error: 'busy' });
+    assert.deepEqual(await app.services.probe('https://b.example/mcp'), { ok: false, error: 'busy', busy: true });
     await app.services.registry.probeAll();
     assert.equal(app.services.registry.byId('alpha').error, 'x', 'the registry\'s own probing never waits at the gate');
     release();
@@ -150,7 +150,7 @@ test('each source holds a share of the in-flight places, so one client cannot st
   const { app, close } = await testApp({ inflight: { probes: 4, probesPerSource: 1, callsPerSource: 1 }, probe });
   try {
     const first = app.services.probe('https://hold.example/mcp', { from: 'k1' });
-    assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k1' }), { ok: false, error: 'busy' });
+    assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k1' }), { ok: false, error: 'busy', busy: true });
     assert.deepEqual(await app.services.probe('https://b.example/mcp', { from: 'k2' }), { ok: false, error: 'x' }, 'another source still gets in');
     release();
     await first;

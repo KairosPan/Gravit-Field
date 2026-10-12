@@ -93,3 +93,16 @@ test('an on-demand probe runs once per plugin at a time and at most once a minut
   assert.deepEqual(own, ['http://127.0.0.1:1/mcp']);
   assert.equal(await r.probeOnDemand('nope'), null);
 });
+
+test('a gate that answers busy is not the plugin\'s health: nothing is recorded, nothing logged, and the minute is not spent', async () => {
+  const logged = [];
+  const r = createRegistry({ root: FIX, dataDir: mkdtempSync(join(tmpdir(), 'gf-')), probe: async () => assert.fail('the registry\'s own probe is not used here'), allowLoopback: true, log: m => logged.push(m) });
+  r.reload();
+  let asked = 0;
+  const busy = async () => { asked++; return { ok: false, error: 'busy', busy: true }; };
+  assert.deepEqual(await r.probeOnDemand('alpha', busy), { ok: false, error: 'busy', busy: true });
+  assert.equal(r.byId('alpha').status, 'unknown');
+  assert.deepEqual(logged, []);
+  await r.probeOnDemand('alpha', busy);
+  assert.equal(asked, 2, 'a busy answer does not spend the once-a-minute attempt');
+});

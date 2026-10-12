@@ -49,7 +49,9 @@ export function createRegistry({ root, dataDir, probe, allowLoopback = false, no
     const job = (async () => {
       try {
         const result = await probeFn(p.url, { allowLoopback });
-        setProbe(id, result);
+        // a full gate is the site's state, not the plugin's: record nothing and leave the minute unspent
+        if (result?.busy) attempted.delete(id);
+        else setProbe(id, result);
         return result;
       } finally {
         running.delete(id);

@@ -105,3 +105,9 @@ test('a failed probe carries the raw detail for the operator\'s log beside the k
   assert.equal(r.error, 'connection refused');
   assert.match(r.detail, /ECONNREFUSED/);
 });
+
+test('a failed probe\'s detail names both attempts, streamable HTTP and SSE, so the operator sees why each failed', async () => {
+  const r = await probe('http://127.0.0.1:1/mcp', { allowLoopback: true });
+  assert.match(r.detail, /^http: .*ECONNREFUSED.* · sse: .*ECONNREFUSED/);
+  assert.equal(r.error, 'connection refused');
+});

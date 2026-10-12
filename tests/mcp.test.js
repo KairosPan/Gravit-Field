@@ -221,3 +221,29 @@ test('twenty simultaneous calls to a plugin whose tools are unknown start one pr
     await tight.close();
   }
 });
+
+test('when the probe gate is full, a call that needs a probe answers busy and leaves the plugin\'s health alone', async () => {
+  const up = await startUpstream();
+  let release;
+  const held = new Promise(r => { release = r; });
+  const { probe: real } = await import('../js/probe.js');
+  const probe = async (url, o) => { if (url.includes('hold')) { await held; return { ok: false, error: 'x' }; } return real(url, o); };
+  const root = rootWith([manifest('fresh', up.url, { tools: [] })], { featured: ['fresh'], Data: ['fresh'] });
+  const { app, base, close } = await testApp({ root, probe, inflight: { probes: 1 } });
+  let client;
+  try {
+    const holding = app.services.probe('https://hold.example/mcp', { from: 'someone-else' });
+    client = await connect(base);
+    const r = await client.callTool({ name: 'plugin_call', arguments: { id: 'fresh', tool: 'echo', args: { text: 'x' } } });
+    assert.equal(r.content[0].text, 'busy');
+    assert.equal(app.services.registry.byId('fresh').status, 'unknown');
+    release();
+    await holding;
+    const again = await client.callTool({ name: 'plugin_call', arguments: { id: 'fresh', tool: 'echo', args: { text: 'now' } } });
+    assert.deepEqual(again.content, [{ type: 'text', text: 'echo:now' }], 'once the gate frees, the probe runs and the call goes through');
+  } finally {
+    await client?.close();
+    await close();
+    await up.close();
+  }
+});

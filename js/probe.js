@@ -31,6 +31,9 @@ export function allowedUrl(url, { allowLoopback = false } = {}) {
   return { ok: true };
 }
 
+// an error and its causes as one line
+const flatten = e => (!e ? '' : [e.code, e.message, e.cause ? flatten(e.cause) : ''].filter(Boolean).join(' '));
+
 export function withTimeout(promise, ms, what) {
   let t;
   const timeout = new Promise((_, reject) => { t = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms); });
@@ -40,7 +43,7 @@ export function withTimeout(promise, ms, what) {
 // streamable HTTP first, SSE on failure; both through the guarded fetch, so every connection is to an address checked as it opens
 export async function connectUpstream(url, { timeoutMs = 12_000, allowLoopback = false, resolve, maxBytes = 0 } = {}) {
   const fetch = guardedFetch({ allowLoopback, maxBytes, ...(resolve ? { resolve } : {}) });
-  let lastError;
+  const failures = [];
   for (const [transport, T] of [['http', StreamableHTTPClientTransport], ['sse', SSEClientTransport]]) {
     const client = new Client({ name: 'gravity-field', version: '0.1.0' });
     try {
@@ -50,12 +53,13 @@ export async function connectUpstream(url, { timeoutMs = 12_000, allowLoopback =
       client.close = async () => { try { await close(); } finally { fetch.destroy(); } };
       return { client, transport };
     } catch (e) {
-      lastError = e;
+      failures.push([transport, e]);
       await client.close().catch(() => {});
     }
   }
   fetch.destroy();
-  throw lastError;
+  // both attempts, in order: why streamable HTTP failed is usually the reason; the SSE fallback's answer follows it
+  throw Object.assign(new Error(failures.map(([t, e]) => `${t}: ${flatten(e)}`).join(' · ')), { cause: failures.at(-1)[1] });
 }
 
 // a tool's description as the drawer shows it: the first line, then its first sentence, at most 140 characters
@@ -65,7 +69,6 @@ export function oneLine(s) {
   const out = sentence ? sentence[1] : line;
   return out.length > 140 ? out.slice(0, 139).trimEnd() + '…' : out;
 }
-const flatten = e => (!e ? '' : [e.code, e.message, e.cause ? flatten(e.cause) : ''].filter(Boolean).join(' '));
 
 // what a submitter may read about a failure: its kind, never addresses or text from inside the network it was tried from
 export function describeError(e) {

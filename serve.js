@@ -83,7 +83,7 @@ export function createApp(options = {}) {
   const ownProbe = (url, extra = {}) => probeFn(url, { allowLoopback: o.allowLoopback, timeoutMs: 12_000, ...extra });
   // the doors' probes wait at the gate; the registry's own schedule never does, so a crowd cannot mark plugins down
   const probe = async (url, { from, ...extra } = {}) => {
-    if (!probeGate.enter(from)) return { ok: false, error: 'busy' };
+    if (!probeGate.enter(from)) return { ok: false, error: 'busy', busy: true }; // the gate's answer, not the plugin's
     try { return await ownProbe(url, extra); } finally { probeGate.leave(from); }
   };
   const registry = createRegistry({ root: o.root, dataDir: o.dataDir, probe: ownProbe, allowLoopback: o.allowLoopback, log });
