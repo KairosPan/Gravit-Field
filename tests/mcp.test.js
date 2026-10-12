@@ -157,3 +157,16 @@ test('shop_publish records its source; two plugin_calls from one source share it
     await silent.close();
   }
 });
+
+test('the face is stateless: GET and DELETE answer 405 with Allow: POST, so no stream is held open; idle sockets time out', async () => {
+  const { app, base, close } = await testApp();
+  try {
+    const g = await fetch(`${base}/mcp`, { headers: { accept: 'text/event-stream' }, signal: AbortSignal.timeout(3000) });
+    assert.equal(g.status, 405);
+    assert.equal(g.headers.get('allow'), 'POST');
+    assert.equal((await fetch(`${base}/mcp`, { method: 'DELETE', signal: AbortSignal.timeout(3000) })).status, 405);
+    assert.equal(app.timeout, 3 * app.services.options.upstreamTimeoutMs + 5000);
+  } finally {
+    await close();
+  }
+});

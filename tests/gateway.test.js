@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGateway, trimContent, allowedTools, MAX_TEXT } from '../js/gateway.js';
-import { startUpstream, startSilent } from './helpers/fake-upstream.js';
+import { startUpstream, startSilent, startStatefulUpstream } from './helpers/fake-upstream.js';
 
 const entry = (url, extra = {}) => ({ id: 'alpha', name: 'Alpha', url, tools: ['echo', 'slow'], toolList: [], ...extra });
 
@@ -117,6 +117,34 @@ test('a plugin whose name now resolves inside a network is refused at connect ti
   } finally {
     await rebound.close();
     await strict.close();
+    await up.close();
+  }
+});
+
+test('a cached client whose upstream forgot its session gets one fresh connection, and the plugin is not marked down', async () => {
+  const up = await startStatefulUpstream();
+  const down = [];
+  const gw = createGateway({ allowLoopback: true, timeoutMs: 5000, onDown: id => down.push(id) });
+  try {
+    assert.deepEqual((await gw.call(entry(up.url), 'echo', { text: 'one' })).content, [{ type: 'text', text: 'echo:one' }]);
+    up.forget();
+    assert.deepEqual((await gw.call(entry(up.url), 'echo', { text: 'two' })).content, [{ type: 'text', text: 'echo:two' }]);
+    assert.deepEqual(down, []);
+  } finally {
+    await gw.close();
+    await up.close();
+  }
+});
+
+test('a cached client that times out is not retried: one slow call, one wait', async () => {
+  const up = await startUpstream();
+  const gw = createGateway({ allowLoopback: true, timeoutMs: 300 });
+  try {
+    await gw.call(entry(up.url), 'echo', { text: 'warm' });
+    assert.equal((await gw.call(entry(up.url), 'slow', { ms: 2000 })).error, 'upstream unreachable');
+    assert.equal(up.calls.filter(c => c[0] === 'slow').length, 1);
+  } finally {
+    await gw.close();
     await up.close();
   }
 });

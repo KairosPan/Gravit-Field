@@ -73,6 +73,8 @@ export function makeServer(services, { req, ip }) {
 export function createMcpRoute(services) {
   return async function mcp({ req, res, path, ip }) {
     if (path !== '/mcp') return false;
+    // stateless: there is no session to stream to or end, so GET and DELETE hold nothing open
+    if (req.method === 'GET' || req.method === 'DELETE') { res.writeHead(405, { allow: 'POST' }); res.end(); return true; }
     // a POST's body is read here, bounded, and handed over parsed
     let body;
     if (req.method === 'POST') {

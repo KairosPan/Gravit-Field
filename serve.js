@@ -151,6 +151,8 @@ export function createApp(options = {}) {
     notFound(res);
   });
 
+  // a socket with nothing moving for longer than the slowest call could take is closed
+  server.timeout = 3 * o.upstreamTimeoutMs + 5000;
   server.services = services;
   server.routes = routes;
   server.ready = ready;

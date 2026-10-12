@@ -15,6 +15,7 @@ export function makeUpstream({ name = 'fake-upstream', version = '0.1.0', calls 
   });
   s.registerTool('boom', { description: 'Always fails', inputSchema: {} }, async () => ({ content: [{ type: 'text', text: 'it broke' }], isError: true }));
   s.registerTool('slow', { description: 'Answers after ms', inputSchema: { ms: z.number().optional() } }, async ({ ms = 2000 }) => {
+    calls.push(['slow', ms]);
     await new Promise(r => setTimeout(r, ms));
     return { content: [{ type: 'text', text: 'late' }] };
   });

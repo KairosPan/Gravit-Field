@@ -57,29 +57,37 @@ export function createGateway({ timeoutMs = 20_000, onDown = () => {}, now = Dat
     onDown(entry.id, reason);
   }
 
+  const timedOut = e => (e instanceof McpError && e.code === TIMED_OUT) || /timed out after/.test(e?.message ?? '');
+
   async function call(entry, tool, args = {}) {
     const t0 = now();
     if (!allowedTools(entry).includes(tool)) return { error: 'tool not offered', ms: 0 };
-    let client;
-    try {
-      client = await clientFor(entry);
-    } catch (e) {
-      await drop(entry, e.message);
-      return { error: 'upstream unreachable', ms: now() - t0 };
-    }
-    try {
-      const r = await client.callTool({ name: tool, arguments: args && typeof args === 'object' ? args : {} }, undefined, { timeout: timeoutMs });
-      return { content: trimContent(r.content), isError: !!r.isError, ms: now() - t0 };
-    } catch (e) {
-      // the server's own answer, an MCP error that is not a timeout, is the caller's tool error; anything else is the line going down
-      if (e instanceof McpError && e.code !== TIMED_OUT) return { content: [{ type: 'text', text: e.message }], isError: true, ms: now() - t0 };
-      // an answer past the byte cap: the line is fine, this answer is not; the client is closed, the plugin stays up
-      if (describeError(e) === 'answer too large') {
-        await forget(entry);
-        return { content: [{ type: 'text', text: `the answer was larger than ${maxBytes} bytes` }], isError: true, ms: now() - t0 };
+    // a cached client that fails for any reason but a timeout gets one fresh connection: an upstream that forgot its
+    // session after an idle spell or a restart is alive, and must not read as down (spec §7: reconnected on error)
+    for (let attempt = 0; ; attempt++) {
+      const cached = clients.get(entry.id)?.url === entry.url;
+      let client;
+      try {
+        client = await clientFor(entry);
+      } catch (e) {
+        await drop(entry, e.message);
+        return { error: 'upstream unreachable', ms: now() - t0 };
       }
-      await drop(entry, e.message);
-      return { error: 'upstream unreachable', ms: now() - t0 };
+      try {
+        const r = await client.callTool({ name: tool, arguments: args && typeof args === 'object' ? args : {} }, undefined, { timeout: timeoutMs });
+        return { content: trimContent(r.content), isError: !!r.isError, ms: now() - t0 };
+      } catch (e) {
+        // the server's own answer, an MCP error that is not a timeout, is the caller's tool error
+        if (e instanceof McpError && e.code !== TIMED_OUT) return { content: [{ type: 'text', text: e.message }], isError: true, ms: now() - t0 };
+        // an answer past the byte cap: the line is fine, this answer is not; the client is closed, the plugin stays up
+        if (describeError(e) === 'answer too large') {
+          await forget(entry);
+          return { content: [{ type: 'text', text: `the answer was larger than ${maxBytes} bytes` }], isError: true, ms: now() - t0 };
+        }
+        if (cached && attempt === 0 && !timedOut(e)) { await forget(entry); continue; }
+        await drop(entry, e.message);
+        return { error: 'upstream unreachable', ms: now() - t0 };
+      }
     }
   }
 
