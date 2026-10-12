@@ -457,8 +457,8 @@ What changes when the demo becomes the community's library, and where it lands:
 ## 14. Amendment, 2026-10-12: security rules settled during the build
 
 Eight rounds of security review ran while the plan was built. Where this section and §4–§11 disagree, this
-section wins. The ledger of the build (`.superpowers/sdd/…/progress.md`, kept out of git) records each ruling
-with its cost if wrong.
+section wins. The ledger of the build (`docs/superpowers/plans/2026-10-11-gravity-field-ledger.md`) records each
+ruling with its cost if wrong.
 
 1. **Where an upstream may live (replaces the address rule of §3.4 and §9).** Addresses are judged after
    resolution, never by the name: loopback (only with `allowLoopback`, for tests), 0/8, 10/8, 100.64/10,
