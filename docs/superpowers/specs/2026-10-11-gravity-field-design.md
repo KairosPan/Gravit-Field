@@ -1,8 +1,8 @@
 # Gravity Field — Design
 
-**Status (2026-10-11):** draft for the operator's review, written at the end of the brainstorming of
-2026-10-11; approved in conversation section by section, not yet approved as a written spec, and no
-implementation plan exists yet.
+**Status (2026-10-12):** approved 2026-10-11 and built on branch `feat/gravity-field-v1` from the plan
+`docs/superpowers/plans/2026-10-11-gravity-field.md`. Security review during the build changed several
+rules; §14 records them and supersedes the sections it names.
 **Owner:** the operator.
 **Reference:** Evolving-Alpha-US PR #7 (`feat/gravit-ui` @ `a8aa791`), the Discover screen —
 `gravit-ui/js/render/discover.js`, `gravit-ui/js/reducers/discover.js`, `gravit-ui/js/data/plugins.js`,
@@ -127,7 +127,7 @@ Ordering is editorial and lives in this one file.
 
 ### 3.4 The probe
 
-`probe(url)`: connect with the SDK client — streamable HTTP first, SSE on failure — 12 s per step,
+(the address rule is superseded by §14.1) `probe(url)`: connect with the SDK client — streamable HTTP first, SSE on failure — 12 s per step,
 `initialize` then `tools/list`, close; return `{ ok, server, toolList, latencyMs }` or
 `{ ok: false, error }`. It runs:
 
@@ -169,7 +169,7 @@ on `127.0.0.1:4840`. Options, each defaulting from the environment:
 | `upstreamTimeoutMs` | `GF_UPSTREAM_TIMEOUT_MS` | `20000` | the gateway's wait on an upstream |
 | `probeOnBoot`, `probeEveryMs` | — | `true`, 15 min | the probe schedule |
 | `allowLoopback` | — | `false` | accept `http://127.0.0.1` plugin URLs (tests) |
-| `trustProxy` | `GF_TRUST_PROXY` | `false` | the client IP is the first hop of `X-Forwarded-For`; set behind Railway or any proxy |
+| `trustProxy` | `GF_TRUST_PROXY` | `false` | the client IP is the last hop of `X-Forwarded-For` (§14.4); set behind Railway or any proxy |
 
 Routes:
 
@@ -191,7 +191,7 @@ Routes:
 Every page carries the catalogue as JSON in `<script type="application/json" id="catalogue">`, so the
 client script boots without a request; the same render modules run on both sides (§5).
 
-Rate limit: a token bucket per client IP (the socket's address, or the first hop of `X-Forwarded-For`
+Rate limit (superseded by §14.4): a token bucket per client IP (the socket's address, or the first hop of `X-Forwarded-For`
 when `trustProxy` is set): 60 `plugin_call` a minute, 600 requests a minute overall, 10 submissions an hour. Over the
 limit answers 429 with `Retry-After`. In memory; resets on restart.
 
@@ -353,7 +353,7 @@ pull requests.
 
 ### 8.3 The admin gate
 
-`/admin` and `/api/admin/*` answer only to a request whose client IP (§4) is loopback, or one carrying the cookie set by
+(superseded by §14.6) `/admin` and `/api/admin/*` answer only to a request whose client IP (§4) is loopback, or one carrying the cookie set by
 visiting `/admin?token=<GF_ADMIN_TOKEN>` (the face's tokenized URL: 30 days, exact host). With no
 `GF_ADMIN_TOKEN`, loopback only. Everything else about the site is public.
 
@@ -453,3 +453,58 @@ What changes when the demo becomes the community's library, and where it lands:
 4. CoinGecko's public endpoint wraps its API in one `execute` tool; list it as is, or wait for a face
    with named tools.
 5. Deployment target and timing: after the demo runs locally.
+
+## 14. Amendment, 2026-10-12: security rules settled during the build
+
+Eight rounds of security review ran while the plan was built. Where this section and §4–§11 disagree, this
+section wins. The ledger of the build (`.superpowers/sdd/…/progress.md`, kept out of git) records each ruling
+with its cost if wrong.
+
+1. **Where an upstream may live (replaces the address rule of §3.4 and §9).** Addresses are judged after
+   resolution, never by the name: loopback (only with `allowLoopback`, for tests), 0/8, 10/8, 100.64/10,
+   169.254/16, 172.16/12, 192.0.0/24, 192.168/16, 198.18/15, multicast and reserved IPv4; `::/96`, fc00::/7,
+   fe80::/10, ff00::/8, 64:ff9b::/96, 2001:db8::/32; an IPv4 address written as IPv6 is judged as IPv4. The
+   probe resolves the name before connecting, and every connection opens through a lookup that refuses a blocked
+   answer at connect time, so a name re-pointed after the check still cannot reach inside. The client transports
+   use a fetch over `node:http(s)` with its own connection pool; it follows no redirect itself, and the SDK's
+   same-origin redirects pass through the same checks. Module: `js/netguard.js`.
+2. **What a submitter reads (amends §5.5, §8.1).** A probe failure reads as a kind: `connection refused`,
+   `timed out`, `host not found`, `connection reset`, `TLS error`, `the server answered HTTP <n>`,
+   `an address inside a network`, `a loopback address`, `answer too large`, `not an MCP server`.
+3. **Sizes (amends §3.2, §7, §9).** An answer is read to at most 2 MB for a probe and 4 MB for a call; past that
+   the socket is closed. A probe keeps at most 64 tools, names up to 64 characters, each schema up to 16 KB
+   serialized (else `{ type: "object" }`), the server's name and version up to 80 characters, each description
+   cut to its first sentence and 140 characters. A call's content is at most 64 items; text over 256 KB is cut
+   with a note; image, audio and resource data over 256 KB is replaced by a note; a too-large answer is a tool
+   error and does not mark the plugin down. Pages embed each tool's name, description and argument hint, never
+   its schema. Request bodies: 64 KB for forms and `/api`, 1 MB for `/mcp`, which the face reads and parses
+   itself.
+4. **Who the client is (replaces §4's rate-limit paragraph).** Behind a trusted proxy the client is the last
+   `X-Forwarded-For` hop, the one the proxy appended; an IPv6 client is its /64. Per client: 600 requests and 60
+   plugin calls a minute, 10 submissions an hour, in buckets that hold at most 50,000 clients and are swept each
+   minute. There is no global hourly budget, because one crowd could lock everyone out for its window. Outbound
+   work is bounded at once: 8 submission probes and 64 upstream calls, at most 2 and 8 from one source; a full
+   gate answers `busy` and frees as work ends. The registry's own probing is never gated.
+5. **The review queue (amends §8.1).** At most 200 pending submissions, at most 3 from one source. A source is a
+   16-hex digest of the client under a salt made at boot and kept in memory; it is stored on the record as
+   `from` and never shown. The door holds a submission's id while its probe runs, creates the pending file only
+   if absent, and checks again after the probe whether the id was approved meanwhile.
+6. **The admin gate (replaces §8.3's first sentence).** Local means a loopback socket that no proxy forwarded:
+   no `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header. Anything else needs the token cookie.
+7. **A page in the visitor's browser cannot drive the server (new).** On a loopback socket, the `Host` must name
+   this machine or `GF_PUBLIC_ORIGIN`'s host. A POST, PUT, PATCH or DELETE whose `Origin` is another site's or
+   `null`, or that a browser marks `Sec-Fetch-Site: cross-site`, is refused. A request with no `Origin` is a
+   client, not a browser. Module: `js/sameorigin.js`.
+8. **The face (amends §6).** It is stateless: `GET` and `DELETE` on `/mcp` answer 405 with `Allow: POST`. A
+   cached upstream client that fails for any reason but a timeout gets one fresh connection before the plugin
+   is reported unreachable, so an upstream that forgot its session reads as alive. A socket with nothing moving
+   for 3 × the upstream timeout + 5 s is closed.
+9. **The page (amends §5.2, §5.7).** A down card only dims. Enter and Space open a focused card. Search waits
+   for an input method to finish composing.
+10. **Modules (amends §11).** Added: `js/netguard.js`, `js/sameorigin.js`, `js/http.js`, `js/pages.js`,
+    `js/submit.js`, `js/door.js`. Unchanged: two dependencies, no build step.
+
+Still open from the review, deferred by the operator's leave: the connect budget can reach twice the timeout
+(HTTP, then SSE), the admin cookie lacks `Secure` behind https, the token comparison is not constant-time, two
+first calls to one plugin can both connect, `/api/ledger` has no per-tool last-hour count, and the gateway does
+not try first the transport the probe found.

@@ -62,8 +62,10 @@ ones; `npm run export` prints them so a commit makes them permanent.
 ## Limits and safety
 
 - An upstream is reached only at a public address: the name is resolved, every address is checked, and the
-  connection opens to the checked address. Loopback, private, link-local and CGNAT ranges are refused, and
-  redirects are never followed.
+  connection opens to the checked address. Loopback, private, link-local and CGNAT ranges are refused. A
+  redirect is followed only within the same origin, through the same checks.
+- An answer is read to at most 2 MB for a probe and 4 MB for a call. A probe keeps at most 64 tools and 16 KB
+  of schema per tool. Text over 256 KB is cut, and larger images and files are replaced by a note.
 - Per client, an IPv6 client counted by its /64: 600 requests and 60 plugin calls a minute, 10 submissions an
   hour. At once, for everyone: 8 submission probes and 64 upstream calls, at most 2 and 8 of them from one
   source. A full gate answers `busy` and frees as soon as work ends.
