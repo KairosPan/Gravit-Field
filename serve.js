@@ -81,7 +81,7 @@ export function createApp(options = {}) {
   registry.reload();
   const submissions = createSubmissions({ dataDir: o.dataDir, log });
   const ledger = createLedger({ file: join(o.dataDir, 'ledger.jsonl') });
-  const gateway = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down') });
+  const gateway = createGateway({ timeoutMs: o.upstreamTimeoutMs, onDown: id => registry.setStatus(id, 'down'), allowLoopback: o.allowLoopback });
   const limits = { ...LIMITS, ...(o.limits ?? {}) };
   const limiters = Object.fromEntries(Object.entries(limits).map(([k, [limit, perMs]]) => [k, createLimiter({ limit, perMs })]));
 

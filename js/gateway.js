@@ -17,14 +17,15 @@ export function allowedTools(entry) {
   return entry.tools?.length ? entry.tools : (entry.toolList ?? []).map(t => t.name);
 }
 
-export function createGateway({ timeoutMs = 20_000, onDown = () => {}, now = Date.now } = {}) {
+// allowLoopback and resolve reach the guarded connection (spec §9): an approved plugin is checked again each time a connection opens
+export function createGateway({ timeoutMs = 20_000, onDown = () => {}, now = Date.now, allowLoopback = false, resolve } = {}) {
   const clients = new Map(); // plugin id → { url, client }
 
   async function clientFor(entry) {
     const have = clients.get(entry.id);
     if (have && have.url === entry.url) return have.client;
     if (have) { clients.delete(entry.id); await have.client.close().catch(() => {}); }
-    const { client } = await connectUpstream(entry.url, { timeoutMs });
+    const { client } = await connectUpstream(entry.url, { timeoutMs, allowLoopback, resolve });
     clients.set(entry.id, { url: entry.url, client });
     return client;
   }

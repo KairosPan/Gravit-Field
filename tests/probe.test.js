@@ -1,7 +1,7 @@
 // tests/probe.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedUrl, probe, withTimeout } from '../js/probe.js';
+import { allowedUrl, probe, withTimeout, describeError, connectUpstream } from '../js/probe.js';
 import { startUpstream, startSilent } from './helpers/fake-upstream.js';
 
 test('allowedUrl: https public hosts pass; loopback only with allowLoopback; private, link-local, credentials and plain http never', () => {
@@ -55,4 +55,35 @@ test('probe gives up on a silent server within the timeout', async () => {
     await silent.close();
   }
   await assert.rejects(withTimeout(new Promise(() => {}), 20, 'x'), /x timed out after 20 ms/);
+});
+
+test('probe resolves the name before connecting: a public-looking name with an address inside is refused; literals in IPv6 and CGNAT forms too', async () => {
+  const resolve = (h, o, cb) => cb(null, [{ address: '10.0.0.8', family: 4 }]);
+  assert.deepEqual(await probe('https://evil.example/mcp', { resolve }), { ok: false, error: 'an address inside a network' });
+  assert.deepEqual(await probe('https://[::ffff:7f00:1]/mcp'), { ok: false, error: 'a loopback address' });
+  assert.deepEqual(await probe('https://100.64.0.1/mcp'), { ok: false, error: 'an address inside a network' });
+});
+
+test('probe errors read as kinds, never as the network\'s internals', async () => {
+  assert.deepEqual(await probe('http://127.0.0.1:1/mcp', { allowLoopback: true }), { ok: false, error: 'connection refused' });
+  const up = await startUpstream();
+  try {
+    assert.deepEqual(await probe(up.url.replace('/mcp', '/nope'), { allowLoopback: true }), { ok: false, error: 'the server answered HTTP 404' });
+  } finally {
+    await up.close();
+  }
+  assert.equal(describeError(Object.assign(new Error('getaddrinfo ENOTFOUND x.example'), { code: 'ENOTFOUND' })), 'host not found');
+  assert.equal(describeError(new Error('something odd at 10.0.0.8:5432')), 'not an MCP server');
+});
+
+test('connectUpstream connects through the pinned lookup: a made-up name pinned to the fake upstream lists its tools', async () => {
+  const up = await startUpstream();
+  try {
+    const { client, transport } = await connectUpstream(`http://made-up.test:${up.port}/mcp`, { allowLoopback: true, resolve: (h, o, cb) => cb(null, [{ address: '127.0.0.1', family: 4 }]) });
+    assert.equal(transport, 'http');
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name), ['echo', 'boom', 'slow']);
+    await client.close();
+  } finally {
+    await up.close();
+  }
 });
