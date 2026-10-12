@@ -53,12 +53,17 @@ const snippet = (key, file, code, state) => `<div class="snippet">${file ? `<div
 const clientSeg = (name, state) => `<div class="radio-seg">${CLIENTS.map(n => `<label class="radio-item"><input type="radio"${attrs({ name, value: n, 'data-action': 'setClient', checked: n === state.client })}><span>${esc(n)}</span></label>`).join('')}</div>`;
 const lineFor = (state, cat) => clientLines(cat.origin)[state.client] ?? clientLines(cat.origin)['Claude Code'];
 
-// one example call: the first tool, and its schema's first required string argument as a placeholder (spec §5.3)
+// a tool's first required string argument: what an example call fills in (pages carry it as hint, the server has the schema)
+export function hintOf(schema) {
+  return Array.isArray(schema?.required) ? schema.required.find(k => schema.properties?.[k]?.type === 'string') ?? null : null;
+}
+
+// one example call: the first tool, and its first required string argument as a placeholder (spec §5.3)
 export function exampleCall(p) {
   const tool = p.tools?.[0] ?? p.toolList?.[0]?.name;
   if (!tool) return null;
-  const schema = (p.toolList ?? []).find(t => t.name === tool)?.inputSchema;
-  const arg = Array.isArray(schema?.required) ? schema.required.find(k => schema.properties?.[k]?.type === 'string') : null;
+  const t = (p.toolList ?? []).find(x => x.name === tool);
+  const arg = t?.hint ?? hintOf(t?.inputSchema);
   return `plugin_call("${p.id}", "${tool}", ${arg ? `{ "${arg}": "<${arg}>" }` : '{}'})`;
 }
 

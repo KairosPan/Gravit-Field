@@ -7,6 +7,11 @@ import { urlOk } from './data/manifest.js';
 import { blockedReason, checkHost, guardedFetch } from './netguard.js';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+// what one probe may read and keep: the answer's bytes, the tools, each schema serialized, the server's name and version
+export const PROBE_BYTES = 2 * 1024 * 1024;
+export const MAX_TOOLS = 64;
+export const MAX_SCHEMA = 16 * 1024;
+const MAX_LABEL = 80;
 
 // loopback is named as such before the https rule, so the operator reads why; http passes only to loopback, only when allowed
 export function allowedUrl(url, { allowLoopback = false } = {}) {
@@ -33,8 +38,8 @@ export function withTimeout(promise, ms, what) {
 }
 
 // streamable HTTP first, SSE on failure; both through the guarded fetch, so every connection is to an address checked as it opens
-export async function connectUpstream(url, { timeoutMs = 12_000, allowLoopback = false, resolve } = {}) {
-  const fetch = guardedFetch({ allowLoopback, ...(resolve ? { resolve } : {}) });
+export async function connectUpstream(url, { timeoutMs = 12_000, allowLoopback = false, resolve, maxBytes = 0 } = {}) {
+  const fetch = guardedFetch({ allowLoopback, maxBytes, ...(resolve ? { resolve } : {}) });
   let lastError;
   for (const [transport, T] of [['http', StreamableHTTPClientTransport], ['sse', SSEClientTransport]]) {
     const client = new Client({ name: 'gravity-field', version: '0.1.0' });
@@ -65,6 +70,7 @@ const flatten = e => (!e ? '' : [e.code, e.message, e.cause ? flatten(e.cause) :
 // what a submitter may read about a failure: its kind, never addresses or text from inside the network it was tried from
 export function describeError(e) {
   const text = flatten(e);
+  if (/EBIG|answer larger than/.test(text)) return 'answer too large';
   if (/EBLOCKED|inside a network/.test(text)) return 'an address inside a network';
   if (/a loopback address/.test(text)) return 'a loopback address';
   if (/timed out|ETIMEDOUT|-32001/i.test(text)) return 'timed out';
@@ -77,6 +83,12 @@ export function describeError(e) {
   return 'not an MCP server';
 }
 
+// a schema is kept as it came when it serializes within MAX_SCHEMA, else as an object of unknown shape
+function boundedSchema(schema) {
+  const s = schema && typeof schema === 'object' ? schema : { type: 'object' };
+  return JSON.stringify(s).length <= MAX_SCHEMA ? s : { type: 'object' };
+}
+
 export async function probe(url, { timeoutMs = 12_000, allowLoopback = false, resolve, now = Date.now } = {}) {
   const allowed = allowedUrl(url, { allowLoopback });
   if (!allowed.ok) return { ok: false, error: allowed.error };
@@ -85,14 +97,15 @@ export async function probe(url, { timeoutMs = 12_000, allowLoopback = false, re
   const t0 = now();
   let client;
   try {
-    const c = await connectUpstream(url, { timeoutMs, allowLoopback, resolve });
+    const c = await connectUpstream(url, { timeoutMs, allowLoopback, resolve, maxBytes: PROBE_BYTES });
     client = c.client;
     const { tools } = await withTimeout(client.listTools({}, { timeout: timeoutMs }), timeoutMs, 'tools/list');
     const info = client.getServerVersion() ?? {};
     return {
       ok: true,
-      server: { name: info.name ?? '', version: info.version ?? '' },
-      toolList: tools.map(t => ({ name: t.name, description: oneLine(t.description), inputSchema: t.inputSchema ?? { type: 'object' } })),
+      server: { name: String(info.name ?? '').slice(0, MAX_LABEL), version: String(info.version ?? '').slice(0, MAX_LABEL) },
+      toolList: tools.filter(t => typeof t.name === 'string' && t.name.length > 0 && t.name.length <= 64).slice(0, MAX_TOOLS)
+        .map(t => ({ name: t.name, description: oneLine(t.description), inputSchema: boundedSchema(t.inputSchema) })),
       latencyMs: Math.round(now() - t0),
       transport: c.transport,
     };

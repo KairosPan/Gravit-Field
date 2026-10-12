@@ -4,7 +4,7 @@ import { BlockList, isIP } from 'node:net';
 import { lookup as dnsLookup } from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 
 const loop = new BlockList();
 loop.addSubnet('127.0.0.0', 8, 'ipv4');
@@ -75,9 +75,24 @@ export function checkHost(hostname, { allowLoopback = false, resolve = dnsLookup
 
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
+// an answer passes through a counter; past maxBytes the stream errors with EBIG and the socket is closed, so nothing larger is ever buffered
+function capped(res, maxBytes) {
+  if (!maxBytes) return res;
+  let seen = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, done) {
+      seen += chunk.length;
+      if (seen > maxBytes) { res.destroy(); return done(Object.assign(new Error(`answer larger than ${maxBytes} bytes`), { code: 'EBIG' })); }
+      done(null, chunk);
+    },
+  });
+  res.on('error', e => counter.destroy(e));
+  return res.pipe(counter);
+}
+
 // a fetch for the MCP client transports: node:http(s) through the guarded lookup; a redirect comes back as it is.
 // Each fetch owns its connection pool: a socket opened under one policy is never reused under another; destroy() closes the pool
-export function guardedFetch({ allowLoopback = false, resolve = dnsLookup } = {}) {
+export function guardedFetch({ allowLoopback = false, resolve = dnsLookup, maxBytes = 0 } = {}) {
   const lookup = guardedLookup({ allowLoopback, resolve });
   const agents = { 'http:': new http.Agent({ keepAlive: true }), 'https:': new https.Agent({ keepAlive: true }) };
   function fetch(input, init = {}) {
@@ -101,7 +116,7 @@ export function guardedFetch({ allowLoopback = false, resolve = dnsLookup } = {}
         for (const [k, v] of Object.entries(res.headers)) for (const x of [].concat(v ?? [])) h.append(k, String(x));
         const empty = NULL_BODY.has(res.statusCode) || method === 'HEAD';
         if (empty) res.resume();
-        done(new Response(empty ? null : Readable.toWeb(res), { status: res.statusCode, statusText: res.statusMessage, headers: h }));
+        done(new Response(empty ? null : Readable.toWeb(capped(res, maxBytes)), { status: res.statusCode, statusText: res.statusMessage, headers: h }));
       });
       req.on('error', failWith);
       req.end(body ?? undefined);
