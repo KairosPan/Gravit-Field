@@ -17,6 +17,7 @@ import { createPages } from './js/pages.js';
 import { createApi } from './js/api.js';
 import { createMcpRoute } from './js/mcp.js';
 import { createSubmitRoute } from './js/submit.js';
+import { createAdmin } from './js/admin.js';
 import { hostAllowed, writeAllowed } from './js/sameorigin.js';
 
 export { sendJson, sendHtml, notFound };
@@ -116,7 +117,7 @@ export function createApp(options = {}) {
   };
 
   // route handlers answer true when they took the request; tried in this order (Tasks 13–16 add theirs)
-  const routes = [createApi(services), createMcpRoute(services), createSubmitRoute(services), createPages(services)];
+  const routes = [createAdmin(services), createApi(services), createMcpRoute(services), createSubmitRoute(services), createPages(services)];
 
   const ready = o.probeOnBoot ? registry.probeAll().catch(e => log(`probe: ${e.message}`)) : Promise.resolve();
   let timer = null;
