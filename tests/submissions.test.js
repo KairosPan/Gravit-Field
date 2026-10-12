@@ -78,3 +78,15 @@ test('the queue holds at most maxPending submissions; a file put beside them is 
   s.reject('dd', 'x');
   assert.deepEqual(s.list().map(r => r.manifest.id), ['bb', 'aa']);
 });
+
+test('one source holds at most maxPerSource places in the queue, others still get in, and a reviewed one frees its place', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'gf-'));
+  const s = createSubmissions({ dataDir, maxPerSource: 2 });
+  s.add({ manifest: manifest('aa'), probe: probeOk, via: 'form', from: 'k1' });
+  s.add({ manifest: manifest('bb'), probe: probeOk, via: 'form', from: 'k1' });
+  assert.throws(() => s.add({ manifest: manifest('cc'), probe: probeOk, via: 'form', from: 'k1' }), e => e.code === 'ESOURCE' && e.message === '2 of your submissions are already in review');
+  assert.equal(s.add({ manifest: manifest('dd'), probe: probeOk, via: 'form', from: 'k2' }).from, 'k2');
+  s.reject('aa', 'x');
+  assert.equal(s.add({ manifest: manifest('ee'), probe: probeOk, via: 'form', from: 'k1' }).manifest.id, 'ee');
+  assert.equal('from' in s.add({ manifest: manifest('ff'), probe: probeOk, via: 'form' }), false, 'no source, nothing recorded and nothing counted');
+});

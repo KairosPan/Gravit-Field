@@ -1,5 +1,6 @@
 // serve.js — Gravity Field: one Node process that is the site, the API, the MCP face and the gateway (spec §4)
 import { createServer } from 'node:http';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -8,7 +9,7 @@ import { createRegistry } from './js/registry.js';
 import { createSubmissions, pendingEntry } from './js/submissions.js';
 import { createLedger } from './js/ledger.js';
 import { createGateway } from './js/gateway.js';
-import { createLimiter, createGate, clientIp } from './js/ratelimit.js';
+import { createLimiter, createGate, clientIp, bucketKey } from './js/ratelimit.js';
 import { probe as realProbe } from './js/probe.js';
 import { makeCatalogue } from './js/data/catalogue.js';
 
@@ -106,8 +107,12 @@ export function createApp(options = {}) {
   const sweeper = setInterval(() => { for (const l of Object.values(limiters)) l.sweep(); }, 60_000);
   sweeper.unref();
 
+  // who submitted, for the per-source queue limit only: a digest of the client key under a salt this run made and keeps in memory
+  const salt = randomBytes(16);
+  const sourceOf = ip => createHash('sha256').update(salt).update(bucketKey(ip)).digest('hex').slice(0, 16);
+
   const services = {
-    options: o, log, registry, submissions, ledger, gateway, limiters, probe,
+    options: o, log, registry, submissions, ledger, gateway, limiters, probe, sourceOf,
     // the origin the MCP address and the Use it lines show: GF_PUBLIC_ORIGIN, else what the request came to
     origin: req => o.publicOrigin ?? `${(o.trustProxy && req.headers['x-forwarded-proto']) || 'http'}://${req.headers.host ?? `${o.host}:${o.port}`}`,
     catalogue: req => makeCatalogue({

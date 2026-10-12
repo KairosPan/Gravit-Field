@@ -17,10 +17,12 @@ export function pendingEntry(rec) {
   };
 }
 
-// the queue holds at most maxPending submissions, so the review page and every catalogue stay small
+// the queue holds at most maxPending submissions, so the review page and every catalogue stay small, and at most
+// maxPerSource from one source (a salted digest of the client, serve.js), so one crowd cannot fill it alone
 export const MAX_PENDING = 200;
+export const MAX_PER_SOURCE = 3;
 
-export function createSubmissions({ dataDir, now = Date.now, log = () => {}, maxPending = MAX_PENDING }) {
+export function createSubmissions({ dataDir, now = Date.now, log = () => {}, maxPending = MAX_PENDING, maxPerSource = MAX_PER_SOURCE }) {
   const dirs = { pending: join(dataDir, 'submissions'), approved: join(dataDir, 'approved'), rejected: join(dataDir, 'rejected') };
   for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
   // pending records by file name: each file is parsed once; a listing reads the directory and parses only what is new
@@ -54,9 +56,11 @@ export function createSubmissions({ dataDir, now = Date.now, log = () => {}, max
     dirs, get,
     list: () => pending().sort((a, b) => b.at - a.at),
     has: id => existsSync(file('pending', id)),
-    add({ manifest, probe, via }) {
-      if (pending().length >= maxPending) throw Object.assign(new Error('the review queue is full'), { code: 'EFULL' });
-      const rec = { manifest, probe, via, at: now() };
+    add({ manifest, probe, via, from = null }) {
+      const queue = pending();
+      if (from && queue.filter(r => r.from === from).length >= maxPerSource) throw Object.assign(new Error(`${maxPerSource} of your submissions are already in review`), { code: 'ESOURCE' });
+      if (queue.length >= maxPending) throw Object.assign(new Error('the review queue is full'), { code: 'EFULL' });
+      const rec = { manifest, probe, via, at: now(), ...(from ? { from } : {}) };
       write('pending', manifest.id, rec);
       return rec;
     },

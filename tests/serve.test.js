@@ -126,3 +126,18 @@ test('probes and upstream calls are bounded in flight, not by a shared budget: a
     await silent.close();
   }
 });
+
+test('a submitter is known by a salted digest of its client key: one per /64 within a run, never the address, another salt each run', async () => {
+  const one = await testApp();
+  const two = await testApp();
+  try {
+    const of = one.app.services.sourceOf;
+    assert.equal(of('2001:db8:1:2::1'), of('2001:db8:1:2::9'));
+    assert.notEqual(of('2001:db8:1:2::1'), of('203.0.113.9'));
+    assert.match(of('203.0.113.9'), /^[0-9a-f]{16}$/);
+    assert.notEqual(two.app.services.sourceOf('203.0.113.9'), of('203.0.113.9'));
+  } finally {
+    await one.close();
+    await two.close();
+  }
+});
